@@ -25,6 +25,7 @@ const messages = {
     'err.startTimeout': 'Service did not become ready within {seconds}s. See the DSH log for details.',
     'err.startCrashed': 'The DSH service exited unexpectedly. See the DSH log for details.',
     'err.notRunning': 'DSH service is not running and auto-start is disabled.',
+    'err.authRequired': 'Port {port} is serving a DSH instance with launch-token authentication, which the plugin cannot attach to. Enable auto-start (dsh.autoStart) so the plugin can run its own instance, or stop that instance and retry.',
     'err.loadFailed': 'Unable to load the DSH page.',
     // 状态栏
     'status.running': 'DSH: Running',
@@ -42,6 +43,8 @@ const messages = {
     'info.stopped': 'DSH service stopped.',
     'msg.portFallback':
       'Port {port} is occupied by another program. Temporarily using port {fallback} for this session (your dsh.port setting is unchanged).',
+    'msg.authFallback':
+      'Port {port} is serving a DSH instance with launch-token authentication (it cannot be reused). Started a plugin-owned instance on port {fallback} for this session.',
     'msg.logsCopied': 'DSH logs copied to the clipboard. Paste them into your bug report.',
     'msg.imageCacheCleaned': 'Cleaned up {count} image-fallback temp file(s) from the workspace.',
     // 桥接状态与警告
@@ -72,6 +75,7 @@ const messages = {
     'err.startTimeout': '服务在 {seconds} 秒内未就绪，详见 DSH 日志。',
     'err.startCrashed': 'DSH 服务异常退出，详见 DSH 日志。',
     'err.notRunning': 'DSH 服务未运行，且已关闭自动启动。',
+    'err.authRequired': '端口 {port} 上运行着启用启动令牌鉴权的 DSH 实例，插件无法自动接入。请开启自动启动（dsh.autoStart）让插件运行自己的实例，或先停掉该实例后重试。',
     'err.loadFailed': '无法加载 DSH 页面。',
     'status.running': 'DSH: 运行中',
     'status.starting': 'DSH: 启动中',
@@ -86,6 +90,8 @@ const messages = {
     'info.stopped': 'DSH 服务已停止。',
     'msg.portFallback':
       '端口 {port} 被其他程序占用，本次会话临时改用端口 {fallback}（dsh.port 设置未更改，重启 VS Code 后恢复）。',
+    'msg.authFallback':
+      '端口 {port} 上是启用启动令牌鉴权的 DSH 实例（无法复用），本次会话已在端口 {fallback} 启动插件自有实例。',
     'msg.logsCopied': 'DSH 日志已复制到剪贴板，请粘贴到问题报告中。',
     'msg.imageCacheCleaned': '已清理 {count} 张图片降级临时缓存。',
     'bridge.warnDegraded':

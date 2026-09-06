@@ -306,6 +306,10 @@ export function activate(context: vscode.ExtensionContext): void {
     onPortFallback: (requested, fallback) => {
       void vscode.window.showInformationMessage(t('msg.portFallback', { port: requested, fallback }));
     },
+    // 目标端口运行着带鉴权 DSH（新版令牌机制，外部实例无法复用）：弹窗告知已改用自有实例
+    onAuthPortFallback: (requested, fallback) => {
+      void vscode.window.showInformationMessage(t('msg.authFallback', { port: requested, fallback }));
+    },
   });
   manager.setExitBehavior(!config.stopOnExit);
 

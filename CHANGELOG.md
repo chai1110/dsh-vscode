@@ -1,3 +1,15 @@
+## [0.4.0] - 2026-09-06
+
+### 修复
+
+- **适配新版 DSH（0.1.2 起）web 启动令牌鉴权——修复「更新 dsh 后面板无法启动」**（issue [#12](https://github.com/Fengze233/dsh-vscode/issues/12)）。根因：新版 dsh web 为防混淆代理，启动时生成**仅存在于该进程内存的随机启动令牌**（stdout 打印 `dsh web: http://127.0.0.1:<port>/?token=…`，访问后种 HMAC 签名 cookie），对无 cookie 请求一律回 `401 "dsh web authentication required"`。旧版插件的探测把 401 误判为「端口被其他程序占用」，且从不解析 stdout 的令牌地址，导致面板白屏/启动失败。修复：
+  - **探测新增 `dsh-auth` 结果**：401/403 且响应体含 `dsh web authentication required` 识别为「带鉴权的 DSH 在运行」（区别于 `foreign` 外来程序占用）；
+  - **带鉴权实例不再复用，改启自有实例**：令牌在对方进程内存里拿不到，插件自动在空闲端口启动自有 dsh 实例（弹窗告知，仅本次会话；外部实例不受影响）；`autoStart=false` 时明确报「无法自动接入」；
+  - **从子进程 stdout 解析带令牌的就绪地址**（`extractDshWebUrl`，取 `dsh web:` 行首条 loopback URL），iframe 直接用它换 cookie 后重定向到干净 `/`；printUrl 未输出时按宽限轮数以无令牌地址兜底就绪；
+  - **CSP frameHosts 改按实际就绪地址的 origin**：覆盖「令牌地址是 `127.0.0.1` 而 `dsh.host` 配置为 `localhost`/`[::1]`」的 authority 差异（cookie 按 Host authority 绑定，iframe 与 CSP 必须同源）；
+  - **健康探测兼容 401**：带鉴权服务对无 cookie 探测永远 401，`dsh-auth` 视为存活，不再误报「已断开」。
+  - 旧版 dsh（无鉴权，`probe=dsh`）复用路径完全不变。
+
 ## [0.3.1] - 2026-08-24
 
 ### 修复

@@ -243,13 +243,14 @@ export class DshPanelProvider implements vscode.WebviewViewProvider {
       switch (s.state) {
         case 'ready':
           this.wasConnected = true;
-          // iframe/CSP 使用解析后的本地可达 URL（远程=隧道；本地=原地址）。
-          // frameHosts 以解析出的 origin 为准，保证 CSP 放行该隧道地址。
+          // iframe/CSP 使用解析后的本地可达 URL（远程=隧道；本地=快照地址）。
+          // frameHosts 一律以实际展示地址的 origin 为准：远程保证 CSP 放行隧道地址；
+          // 本地则覆盖「快照地址是 stdout 解析出的 127.0.0.1 带令牌地址、而 dsh.host
+          // 配置为 localhost/[::1]」的差异——cookie 按 Host authority 绑定，iframe
+          // 与 CSP 必须同源，否则既被 CSP 拦截、令牌 cookie 也种不到正确的 authority。
           {
             const displayUrl = this.pendingExternalUrl ?? s.url ?? this.rawUrl();
-            if (this.pendingExternalUrl !== null) {
-              ctx.frameHosts = [new URL(this.pendingExternalUrl).origin];
-            }
+            ctx.frameHosts = [new URL(displayUrl).origin];
             html = readyPage(displayUrl, ctx, {
               token: this.bridgeToken,
               enabled: this.bridgeEnabled(), // 由 dsh.bridge.enabled 配置驱动（Task 7 接入）

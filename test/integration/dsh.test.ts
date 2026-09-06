@@ -35,8 +35,13 @@ test('真实 dsh web：启动/复用/停止/意外退出全流程', { skip: !has
     const s1 = await manager.ensureRunning();
     assert.equal(s1.state, 'ready');
     assert.equal(s1.owned, true);
-    assert.equal(s1.url, `http://127.0.0.1:${port}/`);
-    assert.equal(await probeService('127.0.0.1', port, 3000), 'dsh');
+    // 新版 dsh（0.1.2 起）启用启动令牌鉴权：就绪地址为 stdout 解析出的带 ?token= 地址；
+    // 旧版 dsh 无鉴权：就绪地址为普通 http://host:port/。两者 origin 相同，均合法。
+    const bootUrl = new URL(s1.url ?? '');
+    assert.equal(bootUrl.origin, `http://127.0.0.1:${port}`);
+    // 无 cookie 探测：新版回 dsh-auth（401 兜底），旧版回 dsh
+    const probeAfterBoot = await probeService('127.0.0.1', port, 3000);
+    assert.ok(probeAfterBoot === 'dsh' || probeAfterBoot === 'dsh-auth', `探测结果应为 dsh/dsh-auth，实际 ${probeAfterBoot}`);
 
     // 2) 幂等复用（不重复启动）：第二次 ensureRunning 后 lastChild 仍指向同一子进程
     const firstChild = runner.lastChild;

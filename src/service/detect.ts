@@ -2,14 +2,18 @@
 // 纯模块：不依赖 vscode，可用 node:test 直接单测。
 
 /** 探测结果 */
-export type ProbeResult = 'dsh' | 'foreign' | 'down';
+export type ProbeResult = 'dsh' | 'dsh-auth' | 'foreign' | 'down';
 
 /** DSH 首页的稳定识别特征（首页 HTML 内联了 window.__DSH_BOOT__ 启动数据，已实测确认） */
 const DSH_MARKER = '__DSH_BOOT__';
 
+/** 新版 dsh（0.1.2 起）web 鉴权 401 响应的固定文案（dsh-client-connection 硬编码，已实测确认） */
+const DSH_AUTH_MARKER = 'dsh web authentication required';
+
 /**
  * 探测 host:port 上运行的服务：
- * - 200 且首页含 DSH 标记 → 'dsh'
+ * - 200 且首页含 DSH 标记 → 'dsh'（未启用鉴权的旧版 dsh，可直接复用）
+ * - 401/403 且响应体含 dsh 鉴权文案 → 'dsh-auth'（新版 dsh，需启动令牌换 cookie 才能访问）
  * - 有 HTTP 响应但不是 DSH → 'foreign'（端口被其他程序占用）
  * - 连接失败/超时/拒绝 → 'down'（视为未运行）
  */
@@ -26,6 +30,16 @@ export async function probeService(
       signal: controller.signal,
       redirect: 'manual',
     });
+    if (res.status === 401 || res.status === 403) {
+      // 鉴权围栏对无 cookie 请求统一回 401（403 留作未来策略扩展）；响应体是识别 DSH 的唯一依据
+      let body = '';
+      try {
+        body = await res.text();
+      } catch {
+        /* 响应体读取失败：按非 DSH 处理 */
+      }
+      return body.includes(DSH_AUTH_MARKER) ? 'dsh-auth' : 'foreign';
+    }
     if (!res.ok) return 'foreign';
     const body = await res.text();
     return body.includes(DSH_MARKER) ? 'dsh' : 'foreign';
@@ -34,6 +48,27 @@ export async function probeService(
     return 'down';
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/**
+ * 从 dsh web 的启动输出中解析就绪地址。
+ *
+ * 新版 dsh 就绪时向 stdout 打印一行（printUrl 默认开启）：
+ *   `dsh web: http://127.0.0.1:3080/?token=<launchToken> (LAN: http://…/?token=…)`
+ * 其中首条 URL 是 loopback 规范地址，且自带「启动令牌换 cookie」所需的 ?token= 参数。
+ * 该令牌只存在于服务进程内存，外部无法推算——插件自启实例时必须从这行输出取地址。
+ *
+ * @param text 任意一段 stdout 文本（可含多行）
+ * @returns 解析到的第一条就绪地址；未命中返回 null
+ */
+export function extractDshWebUrl(text: string): string | null {
+  const match = /dsh web: (https?:\/\/[^\s)]+)/.exec(text);
+  if (!match) return null;
+  try {
+    return new URL(match[1]).href;
+  } catch {
+    return null;
   }
 }
 

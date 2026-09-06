@@ -11,7 +11,10 @@ class FakeChild implements ChildProcessLike {
   killed: string[] = [];
   exitCbs: ((code: number | null) => void)[] = [];
   errorCbs: ((err: Error) => void)[] = [];
-  stdout = { on: (_e: 'data', _cb: (chunk: Buffer) => void) => {} };
+  stdoutDataCb: ((chunk: Buffer) => void) | null = null;
+  stdout = { on: (_e: 'data', cb: (chunk: Buffer) => void): void => {
+    if (_e === 'data') this.stdoutDataCb = cb;
+  } };
   stderrDataCb: ((chunk: Buffer) => void) | null = null;
   stderr = { on: (_e: 'data', _cb: (chunk: Buffer) => void): void => {
     if (_e === 'data') this.stderrDataCb = _cb;
@@ -29,6 +32,9 @@ class FakeChild implements ChildProcessLike {
   }
   emitStderr(text: string): void {
     this.stderrDataCb?.(Buffer.from(text));
+  }
+  emitStdout(text: string): void {
+    this.stdoutDataCb?.(Buffer.from(text));
   }
 }
 
@@ -483,3 +489,69 @@ test('isNoOpenStderr：仅当 stderr 含 "unknown option" 且 "-no-open" 时判�
 
 
 
+
+// ── v0.4.0：新版 dsh 启动令牌鉴权（dsh-auth）──
+
+test('探测到带鉴权 DSH（dsh-auth）：改用空闲端口自有实例，从 stdout 解析带令牌地址后就绪', async () => {
+  const logs: string[] = [];
+  const authFallbackCalls: [number, number][] = [];
+  const h = makeHarness({ pollMs: 20 }, {
+    log: (line) => logs.push(line),
+    onAuthPortFallback: (a, b) => authFallbackCalls.push([a, b]),
+  });
+  // 探测队列：顶层探测 dsh-auth → findFreePort 候选 3081 down（选中）
+  // → 等待循环第一轮 dsh-auth（stdout 尚未输出令牌，宽限一轮）→ 注入 stdout 后下一轮就绪
+  h.probeQueue = ['dsh-auth', 'down', 'dsh-auth', 'dsh-auth'];
+  const done = h.manager.ensureRunning();
+
+  // 轮询等待首次 spawn（最长 500ms），确保 stdout 处理器已挂载，再注入启动输出
+  const deadline = Date.now() + 500;
+  while (h.spawnCount < 1 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.equal(h.spawnCount, 1, '应放弃复用并启动自有实例');
+  h.child?.emitStdout('dsh web: http://127.0.0.1:3081/?token=tok123 (LAN: http://192.168.1.2:3081/?token=tok123)');
+
+  const s = await done;
+  assert.equal(s.state, 'ready');
+  assert.equal(s.owned, true);
+  assert.equal(s.url, 'http://127.0.0.1:3081/?token=tok123', '就绪地址应为 stdout 解析出的带令牌 URL');
+  assert.equal(h.manager.getTarget().port, 3081, '运行时应改用空闲端口');
+  assert.deepEqual(authFallbackCalls, [[3080, 3081]], '应通知「带鉴权 DSH 改端口」回调（而非端口占用回调）');
+  assert.ok(logs.some((l) => l.includes('带令牌的就绪地址')));
+  h.manager.dispose();
+});
+
+test('探测到带鉴权 DSH 且 autoStart=false：failed + err.authRequired，不启动子进程', async () => {
+  const h = makeHarness({ autoStart: false });
+  h.probeQueue = ['dsh-auth'];
+  const s = await h.manager.ensureRunning();
+  assert.equal(s.state, 'failed');
+  assert.equal(s.error, 'err.authRequired');
+  assert.equal(h.spawnCount, 0);
+  h.manager.dispose();
+});
+
+test('stdout 始终未打印令牌地址：宽限轮数耗尽后以无令牌地址兜底就绪', async () => {
+  const logs: string[] = [];
+  const h = makeHarness({ pollMs: 2 }, { log: (line) => logs.push(line) });
+  // 顶层 dsh-auth → 候选 3081 down → 等待循环永远 dsh-auth（不注入 stdout）
+  h.probeQueue = ['dsh-auth', 'down', 'dsh-auth'];
+  const s = await h.manager.ensureRunning();
+  assert.equal(s.state, 'ready', '宽限轮数耗尽后应兜底就绪，不得等到启动超时');
+  assert.equal(s.owned, true);
+  assert.equal(s.url, 'http://127.0.0.1:3081/', '兜底地址为无令牌的运行时端口地址');
+  assert.ok(logs.some((l) => l.includes('未找到带令牌的就绪地址')));
+  h.manager.dispose();
+});
+
+test('旧版 dsh（无鉴权，probe=dsh）复用路径不受影响：仍直接复用且地址无令牌', async () => {
+  const h = makeHarness();
+  h.probeQueue = ['dsh'];
+  const s = await h.manager.ensureRunning();
+  assert.equal(s.state, 'ready');
+  assert.equal(s.owned, false);
+  assert.equal(s.url, 'http://127.0.0.1:3080/');
+  assert.equal(h.spawnCount, 0);
+  h.manager.dispose();
+});
