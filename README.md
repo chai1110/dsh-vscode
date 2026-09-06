@@ -1,14 +1,26 @@
-# DSH for VS Code 🐳
+# DSH for VS Code (Maintained Fork) 🐳
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/Fengze233.dsh-vscode-panel?label=Marketplace&color=4D6BFE)](https://marketplace.visualstudio.com/items?itemName=Fengze233.dsh-vscode-panel)
-[![GitHub stars](https://img.shields.io/github/stars/Fengze233/dsh-vscode?style=social)](https://github.com/Fengze233/dsh-vscode)
-[![DSH Plugin](https://img.shields.io/badge/DSH%20Plugin-dsh--plugin-4D6BFE)](https://github.com/topics/dsh-plugin)
+[![Release](https://img.shields.io/github/v/release/chai1110/dsh-vscode?label=Release&color=4D6BFE)](https://github.com/chai1110/dsh-vscode/releases)
+[![GitHub stars](https://img.shields.io/github/stars/chai1110/dsh-vscode?style=social)](https://github.com/chai1110/dsh-vscode)
+[![Fork of Fengze233/dsh-vscode](https://img.shields.io/badge/Fork%20of-Fengze233%2Fdsh--vscode-8A2BE2)](https://github.com/Fengze233/dsh-vscode)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%E2%89%A51.91-blue)](https://code.visualstudio.com/)
 
 **English** | [中文](README.zh.md)
 
+> [!IMPORTANT]
+> **This repository is a maintained fork of [Fengze233/dsh-vscode](https://github.com/Fengze233/dsh-vscode).** Upstream development has stopped (last release 0.3.1) and does not support the launch-token authentication introduced by the DeepSeek Harness 0.1.2 (alpha/rc) refactor — this fork completes the adaptation and is fully working against `@deepseek-ai/dsh@0.1.2-rc.1`. All credit for the original design and implementation goes to the upstream author; MIT license and project structure are inherited from upstream.
+
 Use the [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) web UI right inside VS Code: click a sidebar icon to embed DSH, which auto-starts (or reuses) the `dsh web` service — code and AI interface side by side, no more switching between terminal, browser, and IDE.
+
+## 🆕 Adaptation for DeepSeek Harness 0.1.2+ (this fork)
+
+Upstream 0.3.1 cannot run against new DSH builds (that series introduced launch-token auth, lazy client modules, and more — see upstream issue [#12](https://github.com/Fengze233/dsh-vscode/issues/12)). This fork completes the adaptation in four layers (0.4.0 → 0.5.1):
+
+- 🔐 **Launch-token auth**: detects auth-enabled DSH instances (401 + the official auth marker), automatically starts a plugin-owned instance on a free port, and parses the tokenized ready URL from dsh's startup output;
+- 🛡️ **Local auth proxy (core)**: the new auth cookie is `SameSite=Strict`, which a cross-site iframe inside the VS Code webview can never send — the panel now goes through a built-in local proxy that injects the auth cookie upstream, so the browser side needs zero cookies;
+- 🧩 **Lazy client-module adaptation**: the bridge client declares `immediately: true` (matching official core modules) so it executes at page boot and its handshake listeners are always bound;
+- ⏱️ **Handshake timing tolerance**: handshake timeout 3s→10s, hello retries for 30s to cover the token→cookie→redirect dance and cold-start first paint; the WebSocket RPC channel (`/api/remote.mux`) is forwarded through the proxy with upgrade headers preserved.
 
 ## 📸 Screenshot
 
@@ -39,32 +51,26 @@ Use the [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness
 
 ## 📥 Installation
 
-**Option 1: Marketplace (recommended)**
+**Option 1: Install from this repository's Release (recommended)**
 
-Search for `DSH` (publisher Fengze233) in the VS Code Extensions view, or run:
-
-```bash
-code --install-extension Fengze233.dsh-vscode-panel
-```
-
-Marketplace page: <https://marketplace.visualstudio.com/items?itemName=Fengze233.dsh-vscode-panel>
-
-**Option 2: .vsix package**
-
-1. Download the latest `dsh-vscode.vsix` from [Releases](https://github.com/Fengze233/dsh-vscode/releases);
+1. Download the latest `dsh-vscode.vsix` from [Releases](https://github.com/chai1110/dsh-vscode/releases);
 2. In VS Code press `Ctrl+Shift+P` → run `Extensions: Install from VSIX...` → select the file;
 3. Reload the window (`Developer: Reload Window`).
 
-**Option 3: Build from source**
+> If you previously had the marketplace version (0.3.1, which no longer works with new dsh), installing this vsix upgrades it in place; VS Code will never downgrade 0.5.1 back to the marketplace's 0.3.1. To be extra safe, disable auto-update for this extension in its right-click menu.
+
+**Option 2: Build from source**
 
 ```bash
-git clone https://github.com/Fengze233/dsh-vscode.git
+git clone https://github.com/chai1110/dsh-vscode.git
 cd dsh-vscode
 npm install
-npm run package        # produces dsh-vscode.vsix, then install as in Option 2
+npm run package        # produces dsh-vscode.vsix, then install as in Option 1
 ```
 
-**Prerequisite**: the `dsh` CLI from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) must be installed and on your PATH (the extension detects it and shows a hint if missing).
+> The marketplace package `Fengze233.dsh-vscode-panel` is the outdated upstream build (0.3.1) and does not support new DeepSeek Harness releases — not recommended anymore.
+
+**Prerequisite**: the `dsh` CLI from [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) must be installed and on your PATH (the extension detects it and shows a hint if missing). Tested against `@deepseek-ai/dsh@0.1.2-rc.1`.
 
 ## 🚀 Usage
 
@@ -155,7 +161,7 @@ Requirements: Node.js ≥ 22, VS Code ≥ 1.91.
 
 ```bash
 npm install
-npm run test          # 161 unit/integration tests (including a full real dsh web flow)
+npm run test          # 198 unit/integration tests (including a full real dsh web flow)
 npm run compile       # builds out/extension.js
 npm run watch         # watch build
 npm run typecheck     # type check
@@ -170,8 +176,9 @@ src/
 ├── i18n.ts               # runtime copy dictionary (zh-* Chinese / otherwise English)
 ├── config.ts             # settings normalization (loopback whitelist)
 ├── service/
-│   ├── detect.ts         # port probing (DSH marker detection)
+│   ├── detect.ts         # port probing (DSH marker detection + auth-marker/token-URL parsing)
 │   ├── process.ts        # cross-platform subprocess wrapper (dsh / dsh.cmd)
+│   ├── authproxy.ts      # local auth proxy (SameSite=Strict cookie injection for the webview)
 │   └── manager.ts        # service manager state machine (core)
 ├── bridge/               # bridge: installer, handshake host, message handling, status
 ├── panel/
@@ -187,17 +194,19 @@ src/
 - VS Code platform rule: the left icon opens the left panel, the right icon opens the right panel — the left icon cannot open the right panel.
 - SSH Remote: the extension must also be installed on the remote (VS Code prompts for it); the tunnel appears in the Ports view and can be closed by the user (the plugin re-creates it on the next ready).
 - Image fallback caches the image files under the **workspace root** — **an open workspace folder is required** (with no folder open, images cannot be cached and no fallback happens). **Temp images are deleted as soon as the model has seen them**: the previous batch is removed the moment the next message is sent in the same session (the model already read it and answered); if no further message comes, a ~2-minute TTL auto-deletes them; conversation create/switch/delete, panel close, page unload and extension deactivate also clean up (best-effort). On activation the extension additionally sweeps any orphaned `dsh-imgcache-*` files left by an earlier session (VS Code restarts lose the in-memory registry), and you can always run the **`DSH: Clean Up Image Cache`** command to purge them manually.
-- **Verifying the bridge was updated**: in the DSH panel DevTools console you should see `[dsh-vscode-bridge] handshake ok, **v0.3.2**, imageFallback=true` and, after sending an image, `image fallback: 已把图片改为地址随消息重发（N 张）: …`. If it still shows an older version, the bridge was not reinstalled — restart the DSH service (the new vsix ships bridge `0.3.2`; the installer force-reinstalls on version mismatch).
+- **Verifying the bridge version**: in the DSH panel DevTools console you should see `[dsh-vscode-bridge] handshake ok, **v0.5.1**, imageFallback=true`; the extension log (`DSH: Show Logs`) should show `[authproxy] 面板经本地认证代理访问` and `[process] 已从启动输出解析到带令牌的就绪地址`. If the handshake keeps timing out, the bridge was not reinstalled — restart the DSH service (the installer force-reinstalls on version mismatch).
 - `--no-open` is passed to `dsh web` by default, unless `dsh.extraArgs` or `dsh.openInBrowser` explicitly opts back in to opening the browser.
+- Under new-dsh auth the extension **cannot reuse** an externally started `dsh web` (the launch token lives only in that process's memory) and starts its own instance instead — both share the same `~/.dsh` data and do not interfere.
 
 ## 🌐 Community
 
 This is a DeepSeek Harness community plugin (topic: [`dsh-plugin`](https://github.com/topics/dsh-plugin)).
 
 - DSH official repo: <https://github.com/deepseek-ai/deepseek-harness>
-- Issue tracker: <https://github.com/Fengze233/dsh-vscode/issues>
+- Issues for this fork: <https://github.com/chai1110/dsh-vscode/issues>
+- Upstream project (no longer maintained): <https://github.com/Fengze233/dsh-vscode>
 - DSH community discussions: <https://github.com/deepseek-ai/deepseek-harness/discussions>
 
 ## 📄 License
 
-[MIT](./LICENSE) © 2026 Fengze233
+[MIT](./LICENSE) © 2026 Fengze233 (upstream) · 2026 chai1110 (this fork's changes)

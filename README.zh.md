@@ -1,14 +1,26 @@
-# DSH for VS Code 🐳
+# DSH for VS Code（维护中 Fork）🐳
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Marketplace](https://img.shields.io/visual-studio-marketplace/v/Fengze233.dsh-vscode-panel?label=Marketplace&color=4D6BFE)](https://marketplace.visualstudio.com/items?itemName=Fengze233.dsh-vscode-panel)
-[![GitHub stars](https://img.shields.io/github/stars/Fengze233/dsh-vscode?style=social)](https://github.com/Fengze233/dsh-vscode)
-[![DSH 社区插件](https://img.shields.io/badge/DSH%20Plugin-dsh--plugin-4D6BFE)](https://github.com/topics/dsh-plugin)
+[![Release](https://img.shields.io/github/v/release/chai1110/dsh-vscode?label=Release&color=4D6BFE)](https://github.com/chai1110/dsh-vscode/releases)
+[![GitHub stars](https://img.shields.io/github/stars/chai1110/dsh-vscode?style=social)](https://github.com/chai1110/dsh-vscode)
+[![Fork of Fengze233/dsh-vscode](https://img.shields.io/badge/Fork%20of-Fengze233%2Fdsh--vscode-8A2BE2)](https://github.com/Fengze233/dsh-vscode)
 [![VS Code](https://img.shields.io/badge/VS%20Code-%E2%89%A51.91-blue)](https://code.visualstudio.com/)
 
 **中文** | [English](README.md)
 
+> [!IMPORTANT]
+> **本仓库是 [Fengze233/dsh-vscode](https://github.com/Fengze233/dsh-vscode) 的维护分支**。原作者已停止更新（上游最后版本 0.3.1），无法适配 DeepSeek Harness 0.1.2（alpha/rc）系列重构后的启动令牌鉴权等变化——本 Fork 补齐了全部适配，在 `@deepseek-ai/dsh@0.1.2-rc.1` 实机完整可用。感谢原作者的出色工作，MIT 协议与项目结构均继承自上游。
+
 在 VS Code 中直接使用 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 的网页界面：点击侧边栏图标即可内嵌打开 DSH，自动启动/复用 `dsh web` 服务，代码与 AI 界面同屏，无需再切换终端和浏览器。
+
+## 🆕 本 Fork 的适配（针对 DeepSeek Harness 0.1.2+）
+
+上游 0.3.1 无法在新版 DSH 上使用（该系列引入了启动令牌鉴权、客户端模块懒加载等重构，对应上游 issue [#12](https://github.com/Fengze233/dsh-vscode/issues/12)）。本 Fork 分四层补齐（0.4.0 → 0.5.1）：
+
+- 🔐 **启动令牌鉴权适配**：识别新版 dsh 的带鉴权实例（401 + 官方鉴权文案），自动改用空闲端口启动插件自有实例，并从 dsh 启动输出解析带令牌的就绪地址；
+- 🛡️ **本地认证代理（核心）**：新版认证 cookie 为 `SameSite=Strict`，VS Code webview 的跨站 iframe 携带不了——面板改为经内置本地代理访问，认证 cookie 由扩展宿主在上游注入，浏览器侧零 cookie；
+- 🧩 **客户端模块懒加载适配**：桥接客户端声明 `immediately: true`（与官方核心模块一致），页面启动即执行，握手监听不再缺席；
+- ⏱️ **握手时序容错**：握手超时 3s→10s、hello 重发持续 30s，覆盖「令牌换 cookie → 303 重定向」与冷启动首屏时序；WebSocket RPC 通道（`/api/remote.mux`）经代理原样转发（保留升级头）。
 
 ## 📸 界面截图
 
@@ -39,32 +51,26 @@
 
 ## 📥 安装
 
-**方式一：商店安装（推荐）**
+**方式一：从本仓库 Release 安装（推荐）**
 
-VS Code 扩展面板搜索 `DSH`（发布者 Fengze233），或命令行执行：
-
-```bash
-code --install-extension Fengze233.dsh-vscode-panel
-```
-
-商店页面：<https://marketplace.visualstudio.com/items?itemName=Fengze233.dsh-vscode-panel>
-
-**方式二：下载 .vsix 安装包**
-
-1. 前往 [Releases](https://github.com/Fengze233/dsh-vscode/releases) 下载最新 `dsh-vscode.vsix`；
+1. 前往 [Releases](https://github.com/chai1110/dsh-vscode/releases) 下载最新 `dsh-vscode.vsix`；
 2. VS Code 中按 `Ctrl+Shift+P` → 执行 `Extensions: Install from VSIX...` → 选择下载的文件；
 3. 重载窗口（`Developer: Reload Window`）。
 
-**方式三：从源码构建**
+> 若之前装的是商店版（0.3.1，已不适配新版 dsh），用本 VSIX 原位覆盖即可；VS Code 不会把更高版本降级回商店版。如需彻底保险，可在扩展右键菜单关闭「自动更新」。
+
+**方式二：从源码构建**
 
 ```bash
-git clone https://github.com/Fengze233/dsh-vscode.git
+git clone https://github.com/chai1110/dsh-vscode.git
 cd dsh-vscode
 npm install
-npm run package        # 产出 dsh-vscode.vsix，再按方式二安装
+npm run package        # 产出 dsh-vscode.vsix，再按方式一安装
 ```
 
-**前置要求**：已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 `dsh` 命令并位于 PATH 中（插件会自动检测；未安装时会给出提示）。
+> 商店里的 `Fengze233.dsh-vscode-panel` 是上游旧版（0.3.1），不支持新版 DeepSeek Harness，不建议再安装。
+
+**前置要求**：已安装 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 的 `dsh` 命令并位于 PATH 中（插件会自动检测；未安装时会给出提示）。实测适配版本：`@deepseek-ai/dsh@0.1.2-rc.1`。
 
 ## 🚀 使用
 
@@ -155,7 +161,7 @@ npm run package        # 产出 dsh-vscode.vsix，再按方式二安装
 
 ```bash
 npm install
-npm run test          # 161 个单元/集成测试（含真实 dsh web 全流程）
+npm run test          # 198 个单元/集成测试（含真实 dsh web 全流程）
 npm run compile       # 构建 out/extension.js
 npm run watch         # 监听构建
 npm run typecheck     # 类型检查
@@ -170,8 +176,9 @@ src/
 ├── i18n.ts               # 动态文案字典（zh-* 中文 / 其余英文）
 ├── config.ts             # 设置读取与规范化（loopback 白名单校验）
 ├── service/
-│   ├── detect.ts         # 端口探测（识别 DSH 标记）
+│   ├── detect.ts         # 端口探测（DSH 标记 / 鉴权围栏识别、令牌地址解析）
 │   ├── process.ts        # 跨平台子进程封装（dsh / dsh.cmd）
+│   ├── authproxy.ts      # 本地认证代理（为 webview 跨站 iframe 注入 SameSite=Strict cookie）
 │   └── manager.ts        # 服务管理器状态机（核心）
 ├── bridge/               # 桥接：安装器、握手宿主、消息处理、状态评估
 ├── panel/
@@ -187,17 +194,19 @@ src/
 - VS Code 平台规则：左侧图标打开左侧面板、右侧图标打开右侧面板，无法让左侧图标打开右侧面板。
 - SSH Remote：远端也需安装本插件（VS Code 会引导）；隧道会出现在「端口(Ports)」视图，用户可手动关闭，插件在下次就绪时自动重建。
 - 图片降级：缓存文件放在**工作区根目录**——**需先打开一个工作区文件夹**（未打开文件夹时无法落盘缓存，也就不做降级）。**临时图“模型看完即删”**：同会话发出下一条消息时立即删除上一批（模型已读完并回答）；若不再发消息，约 2 分钟后自动删除兜底；会话新建/删除/切换、面板关闭/页面卸载与扩展停用也都会清理（尽力而为）。扩展激活时会自动扫描清理上次会话遗留的 `dsh-imgcache-*` 孤儿；也可随时运行命令 **`DSH: 清理图片缓存`** 一键清除。
-- **复测如何确认桥接已更新**：在 DSH 面板 DevTools（开发者工具）Console 中应看到 `[dsh-vscode-bridge] handshake ok, **v0.3.2**, imageFallback=true` 与传图发送后的 `image fallback: 已把图片改为地址随消息重发（N 张）: …` 日志；若仍显示旧版本，说明旧桥接未重装——请重启 DSH 服务（新 vsix 随附桥接版本 `0.3.2`，安装器会在版本不一致时强制重装）。
+- **如何确认桥接版本**：在 DSH 面板 DevTools（开发者工具）Console 中应看到 `[dsh-vscode-bridge] handshake ok, **v0.5.1**, imageFallback=true`；扩展日志（`DSH: 查看日志`）中应看到 `[authproxy] 面板经本地认证代理访问` 与 `[process] 已从启动输出解析到带令牌的就绪地址`。若握手持续超时，说明桥接未随新版重装——重启 DSH 服务即可（安装器在版本不一致时强制重装）。
 - `--no-open` 默认传给 `dsh web`；若在 `dsh.extraArgs` 或 `dsh.openInBrowser` 显式选择弹浏览器，则按你的选择执行。
+- 新版 dsh 鉴权下，插件**无法复用**外部手动启动的 `dsh web`（启动令牌只存在于该进程内存），会自动另启自有实例——两者共用同一 `~/.dsh` 数据，互不干扰。
 
 ## 🌐 社区
 
 本项目是 DeepSeek Harness 社区插件（话题：[`dsh-plugin`](https://github.com/topics/dsh-plugin)）。
 
 - DSH 官方仓库：<https://github.com/deepseek-ai/deepseek-harness>
-- 问题反馈：<https://github.com/Fengze233/dsh-vscode/issues>
+- 本 Fork 问题反馈：<https://github.com/chai1110/dsh-vscode/issues>
+- 上游项目（已停止更新）：<https://github.com/Fengze233/dsh-vscode>
 - DSH 社区讨论：<https://github.com/deepseek-ai/deepseek-harness/discussions>
 
 ## 📄 License
 
-[MIT](./LICENSE) © 2026 Fengze233
+[MIT](./LICENSE) © 2026 Fengze233（上游项目）· 2026 chai1110（本 Fork 的修改）
