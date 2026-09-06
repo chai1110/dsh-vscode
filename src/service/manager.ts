@@ -56,6 +56,17 @@ export interface ManagerDeps {
   onPortFallback?: (requestedPort: number, fallbackPort: number) => void;
   /** 目标端口运行着带鉴权 DSH、自动改用空闲端口自有实例后的通知回调（扩展里弹窗告知） */
   onAuthPortFallback?: (requestedPort: number, fallbackPort: number) => void;
+  /**
+   * 本地认证代理（可选）。新版 dsh 的认证 cookie 是 SameSite=Strict，VS Code webview
+   * 的跨站 iframe 携带不了——就绪且解析到带令牌地址时，把面板展示地址换成代理地址，
+   * 由代理在上游注入 cookie。实现见扩展入口的 createAuthProxyController。
+   */
+  authProxy?: {
+    /** @param upstreamUrl 上游带令牌就绪地址 @returns 面板展示地址（代理地址） */
+    ensureReadyUrl(upstreamUrl: string): Promise<string>;
+    /** 服务停止/退出就绪时回收代理 */
+    stop(): void;
+  };
   /** 就绪后的健康探测间隔（毫秒，默认 30000；≤0 关闭探测） */
   healthIntervalMs?: number;
   /** 启动总超时（毫秒，默认 15000） */
@@ -171,6 +182,7 @@ export class ServiceManager {
   /** 停掉自启子进程并回到 idle */
   private async stopOwned(): Promise<void> {
     this.clearHealthWatch();
+    this.deps.authProxy?.stop();
     if (!this.child) {
       this.set({ state: 'idle', url: null, owned: false, error: null });
       return;
@@ -425,10 +437,21 @@ export class ServiceManager {
       }
       if (result === 'dsh-auth') {
         // 新版 dsh：服务已绑定端口，但对无 cookie 探测回 401——就绪与否取决于
-        // 是否已从 stdout 拿到带令牌地址；拿到即可就绪（iframe 用它换 cookie 后重定向到干净 /）。
+        // 是否已从 stdout 拿到带令牌地址；拿到即经认证代理就绪（webview 的跨站
+        // iframe 携带不了 SameSite=Strict cookie，直连地址在面板里就是 401 页）。
         if (this.childAuthUrl !== null) {
+          const upstreamUrl: string = this.childAuthUrl;
           this.deps.log(`[process] 已从启动输出解析到带令牌的就绪地址（端口 ${this.opts.port}）`);
-          this.set({ state: 'ready', url: this.childAuthUrl, owned: true });
+          let display: string = upstreamUrl;
+          if (this.deps.authProxy) {
+            try {
+              display = await this.deps.authProxy.ensureReadyUrl(upstreamUrl);
+              this.deps.log(`[authproxy] 面板经本地认证代理访问：${display}`);
+            } catch (err) {
+              this.deps.log(`[authproxy] 代理不可用（${String(err)}），退回带令牌直连地址`);
+            }
+          }
+          this.set({ state: 'ready', url: display, owned: true });
           this.startHealthWatch();
           return this.getSnapshot();
         }
@@ -462,6 +485,7 @@ export class ServiceManager {
     this.child = null;
     if (this.snapshot.state === 'ready') {
       this.clearHealthWatch();
+      this.deps.authProxy?.stop();
       this.set({ state: 'idle', url: null, owned: false, error: null });
     }
   }

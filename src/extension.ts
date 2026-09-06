@@ -8,6 +8,7 @@ import { readConfig, type DshConfig } from './config';
 import { probeService } from './service/detect';
 import { createProcessRunner, findInPath } from './service/process';
 import { ServiceManager, type ManagerOptions } from './service/manager';
+import { createAuthProxyController } from './service/authproxy';
 import { DshPanelProvider } from './panel/provider';
 import { StatusBarController } from './statusbar';
 import { resolveWorkspaceRoot } from './workspaceRoot';
@@ -307,6 +308,9 @@ export function activate(context: vscode.ExtensionContext): void {
     probeService,
     processRunner: createProcessRunner(),
     log: (line) => appendLog(line),
+    // 本地认证代理：新版 dsh 的 SameSite=Strict cookie 在 webview 跨站 iframe 里带不上，
+    // 就绪地址改走代理、由代理在上游注入 cookie（详见 src/service/authproxy.ts）
+    authProxy: createAuthProxyController({ log: (line) => appendLog(line) }),
     // 端口被占用自动临时替换成功：弹窗告知用户新端口（仅本次会话，配置未变）
     onPortFallback: (requested, fallback) => {
       void vscode.window.showInformationMessage(t('msg.portFallback', { port: requested, fallback }));
@@ -502,5 +506,6 @@ export async function deactivate(): Promise<void> {
   }
   const config = readConfig().config;
   if (config.stopOnExit) await manager?.stop();
+  // 认证代理随管理器停止已回收；保险起见停用路径再停一次（幂等）
   manager?.dispose();
 }
