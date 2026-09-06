@@ -1,3 +1,9 @@
+## [0.5.1] - 2026-09-06
+
+### 修复
+
+- **修复「面板 UI 已加载但模型列表为空、无法创建对话」——代理的 WebSocket 升级转发丢失 `Connection` 头**（0.5.0 实机反馈：UI 通了但 RPC 全死）。根因：DSH 的全部 RPC 走 `/api/remote.mux` **WebSocket** 通道；0.5.0 代理的通用请求头处理把 `Connection` 头列入剔除名单，转发升级请求时上游收不到 `Connection: Upgrade` → 不被识别为升级请求 → 握手失败 → 模型列表、会话创建等一切 RPC 不可用。修复：升级转发单独构造头——保留 `Connection`/`Upgrade`，仅改写 `Host`、注入认证 cookie、剔除 `Origin`/`Referer`/`Sec-Fetch-*`（来源类头指向代理 origin 会被 `/api` 围栏同源校验拒绝）。新增 WS 握手回归测试（198 例全过）。
+
 ## [0.5.0] - 2026-09-06
 
 ### 修复

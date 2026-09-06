@@ -122,3 +122,34 @@ test('控制器：同一上游复用同代理地址，上游变化重建新地�
   assert.ok(logs.some((l) => l.includes('authproxy')));
   controller.stop();
 });
+
+test('代理 WebSocket upgrade：保留 Connection/Upgrade 头，RPC 通道握手成功', async () => {
+  const crypto = await import('node:crypto');
+  // upstream 带升级路由：校验 Connection/Upgrade 头到达上游，回 101
+  const upstream = http.createServer((_req, res) => { res.writeHead(200); res.end(); });
+  let sawUpgradeHeaders = false;
+  upstream.on('upgrade', (req, socket) => {
+    sawUpgradeHeaders = String(req.headers.connection).toLowerCase().includes('upgrade') && req.headers.upgrade === 'websocket';
+    const accept = crypto.createHash('sha1').update(String(req.headers['sec-websocket-key']) + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+    socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
+    socket.end();
+  });
+  await new Promise<void>((res) => upstream.listen(0, '127.0.0.1', res));
+  const upstreamPort = (upstream.address() as AddressInfo).port;
+  const proxy = await startAuthProxy({ upstreamPort, cookie: COOKIE, tokenUrl: 'http://127.0.0.1:1/?token=x' });
+  try {
+    const wsUrl = proxy.url.replace('http', 'ws').replace(/\/$/, '') + '/api/remote.mux';
+    const ws = new WebSocket(wsUrl);
+    const opened = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 2500);
+      ws.addEventListener('open', () => { clearTimeout(timer); resolve(true); });
+      ws.addEventListener('error', () => { clearTimeout(timer); resolve(false); });
+    });
+    assert.equal(sawUpgradeHeaders, true, '上游必须收到 Connection: Upgrade + Upgrade: websocket');
+    assert.equal(opened, true, '经代理的 WebSocket 握手应成功');
+    ws.close();
+  } finally {
+    proxy.stop();
+    upstream.close();
+  }
+});

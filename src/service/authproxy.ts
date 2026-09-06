@@ -158,13 +158,22 @@ export async function startAuthProxy(opts: StartAuthProxyOptions): Promise<AuthP
     });
   });
 
-  // WebSocket upgrade 兜底：原始头按同一策略改写后双向直连
+  // WebSocket upgrade 转发（/api/remote.mux 是 UI 的唯一 RPC 通道）：
+  // 升级请求必须保留 Connection/Upgrade 头——仅改写 Host、注入 cookie、剔除来源类头
+  // （Origin 指向代理 origin 会被 /api 围栏的同源校验拒绝，剔除后围栏按 Host 判定放行）
   server.on('upgrade', (req, clientSocket, head) => {
     const upstreamSocket = net.connect({ host: '127.0.0.1', port: upstreamPort }, () => {
-      const lines = [`${req.method} ${req.url} HTTP/1.1`];
-      const headers = rewriteRequestHeaders(req.headers);
-      for (const [name, value] of Object.entries(headers)) {
+      const headers: Record<string, string | string[]> = {};
+      for (const [name, value] of Object.entries(req.headers)) {
+        const lower = name.toLowerCase();
+        if (lower === 'host' || lower === 'cookie' || lower === 'origin' || lower === 'referer' || lower.startsWith('sec-fetch-')) continue;
         if (value === undefined) continue;
+        headers[lower] = value;
+      }
+      headers['host'] = upstreamAuthority;
+      headers['cookie'] = cookie;
+      const lines = [`${req.method} ${req.url} HTTP/1.1`];
+      for (const [name, value] of Object.entries(headers)) {
         for (const item of Array.isArray(value) ? value : [String(value)]) lines.push(`${name}: ${item}`);
       }
       upstreamSocket.write(lines.join('\r\n') + '\r\n\r\n');
