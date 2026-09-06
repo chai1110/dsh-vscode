@@ -44,10 +44,15 @@ function appendLog(line: string): void {
 
 /** globalState 键：用户点击「不再提示」后置 true，持久静默桥接降级警告 */
 const BRIDGE_SILENCE_KEY = 'dsh.bridgeWarningSilenced';
-/** 握手超时（毫秒）：面板打开且服务就绪后，此时间内无任何 bridgeAck 视为握手失败 */
-const HANDSHAKE_TIMEOUT_MS = 3000;
+/**
+ * 握手超时（毫秒）：面板打开且服务就绪后，此时间内无任何 bridgeAck 视为握手失败。
+ * v0.4.1 由 3s 放宽到 10s：新版 dsh（0.1.2 起）就绪地址带 ?token=，iframe 要先走
+ * 「换 cookie → 303 重定向」再加载应用，桥接客户端（client 插件）在冷启动实例上
+ * materialize 明显晚于以前——3s 会把「加载中」误判为「握手失败」弹降级警告。
+ */
+const HANDSHAKE_TIMEOUT_MS = 10000;
 /** 激活后评估桥接状态的延迟（毫秒）：略大于握手超时，给握手回执留出时间 */
-const BRIDGE_EVAL_DELAY_MS = 3500;
+const BRIDGE_EVAL_DELAY_MS = 10500;
 
 /** DshConfig → ManagerOptions（探测 3s、轮询 0.5s，与规格一致） */
 function toManagerOptions(config: DshConfig): ManagerOptions {

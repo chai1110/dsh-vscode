@@ -169,8 +169,10 @@ if (iframeEl) {
     }
   });
   // iframe 加载完成后下发握手消息（携带 token）。
-  // DSH 的 client 插件 factory 可能在 load 之后才 materialize，握手消息会丢失，
-  // 因此收到 bridgeAck 前每 250ms 重发一次，最多重试 3 秒。
+  // DSH 的 client 插件 factory 可能在 load 之后才 materialize，握手消息会丢失；
+  // 新版 dsh（0.1.2 起）首屏还多一步「?token= 换 cookie → 303 重定向」且冷启动实例
+  // 资产首次伺服较慢，桥接客户端可能明显晚于 load 事件就绪——因此收到 bridgeAck 前
+  // 每 500ms 重发一次，持续 30 秒（60 次），宁可多发不可漏发（页面侧幂等）。
   iframeEl.addEventListener('load', () => {
     let helloAttempts = 0;
     const sendHello = () => {
@@ -181,9 +183,9 @@ if (iframeEl) {
     sendHello();
     const helloRetry = setInterval(() => {
       helloAttempts += 1;
-      if (bridgeAcked || helloAttempts > 12) { clearInterval(helloRetry); return; }
+      if (bridgeAcked || helloAttempts > 60) { clearInterval(helloRetry); return; }
       sendHello();
-    }, 250);
+    }, 500);
   });
 }`;
 }
