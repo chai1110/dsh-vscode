@@ -1,3 +1,14 @@
+## [0.4.2] - 2026-09-06
+
+### 修复
+
+- **修复「面板能打开、桥接也装了，但握手永远无回执、持续弹『DSH 桥接未生效』」**（0.4.1 实机反馈，端到端抓包定位）。根因是新版 dsh **客户端模块系统的加载语义变更**，与握手窗口无关：
+  - 旧版 dsh（0.1.1 及以前）：页面把所有 client 插件**全量立即执行**，桥接工厂随页面启动运行，`message` 监听器从一开始就在；
+  - 新版 dsh（0.1.2 起）：客户端模块改为**懒加载注册**——`__DSH_BOOT__` 的 `entries` 里每个模块先只注册工厂，只有带 **`immediately: true`** 标记的条目才在启动时执行，其余要等被其它模块 require 才 materialize（`@deepseek-ai/dsh-client-modules` 读取插件包 `dsh.client.immediately` 声明，官方 9 个核心模块均带此标记）；
+  - 桥接是**纯被动监听器**（等外层 VS Code 页面 postMessage `bridgeHello`），没有任何模块会 require 它 → 工厂永不执行 → 监听器永不绑定 → 握手必然超时。上一版 0.4.1 放宽握手窗口只能推迟、不能消除该问题。
+  - **修复**：`dsh-vscode-bridge` 的包声明对齐官方模式，`dsh.client` 增加 **`"immediately": true`**（与 `@deepseek-ai/dsh-client-connection` 声明完全同款）。桥接版本随插件升至 **0.4.2**（触发安装器强制重装）。
+- 验证：命令行端到端（拉起真实 dsh → 解析令牌 → 换 cookie → 抓取页面与全部 JS 资产）确认修复后 boot 数据中 `dsh-vscode-bridge` 条目带 `immediately: true`。
+
 ## [0.4.1] - 2026-09-06
 
 ### 修复
