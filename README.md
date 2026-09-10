@@ -21,6 +21,13 @@ DeepSeek Harness 0.1.2 (alpha/rc) introduced launch-token auth, lazy client modu
 
 Tested against `@deepseek-ai/dsh@0.1.2-rc.1` (198 unit/integration tests + end-to-end verification on a real machine).
 
+**Newer versions**: verified against `@deepseek-ai/dsh@0.1.5-rc.1` — the ready line and the auth logic are
+**byte-/statement-identical** to this fork's baseline (only line numbers and indentation drifted), and both the
+lazy client-module mechanism and the WSS forwarding channel are unchanged, so **the adaptation layer needs no change**.
+The single item pending real-machine regression: 0.1.5's "upload any file type" goes through a
+`requestBodyMode: streaming` path, so the proxy's request-body forwarding should be exercised with one large upload
+(see the `[Unreleased]` section in [CHANGELOG](CHANGELOG.md)).
+
 ## Install
 
 1. Download the latest `dsh-vscode.vsix` from [Releases](https://github.com/chai1110/dsh-vscode/releases);

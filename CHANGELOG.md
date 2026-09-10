@@ -1,3 +1,26 @@
+## [Unreleased]
+
+### 兼容性
+
+- **核对 DSH `0.1.5-rc.1`：本 Fork 的适配层无需改动**（2026-09-10，静态核对；尚未真机回归）。
+  - **启动就绪行**：`dsh-web-app` 打印语句
+    `dsh web: ${authenticatedUrl}${lanUrl === void 0 ? "" : ` (LAN: ${lanUrl})`}`
+    在 0.1.2-rc.1 与 0.1.5-rc.1 **逐字节相同**（仅行号 211 → 203 漂移）。本扩展的正则
+    `/dsh web: (https?:\/\/[^\s)]+)/` 以空白和 `)` 为界，天然忽略 ` (LAN: …)` 后缀，不受影响。
+  - **令牌换 cookie / 鉴权**：`dsh-client-connection/lib/index.js` 中 `SameSite` 认证 cookie、
+    令牌交换、`unauthorized`/`forbidden` 响应等语句集合**完全一致**（仅缩进与行号差异；文件 721 → 788 行属别处新增）。
+  - **桥接懒加载机制**：`__ModuleLoader__.load()` + `immediately` 声明在 0.1.5 的全部客户端插件中仍在使用，
+    `dsh-vscode-bridge` 的声明无需调整。
+  - **WSS 转发通道**：`/api/remote.mux` 路径与升级语义未变；0.1.5 新增的 RPC 方法（`workspaceFiles/*`、
+    `fileUploads/upload`、`sessionFeedback/record`、`goals/get`）均走同一 mux 通道，代理无需感知。
+
+### 待验证
+
+- ⚠️ **大文件上传路径需真机回归**：0.1.5 在 `dsh-client-connection/lib/index.js` 新增
+  `apiHandler.requestBodyMode()`（返回 `buffered` / `streaming`）以支撑「上传任意类型文件」与跨会话续传；
+  `streaming` 分支不会预先读完请求体（`req.readableEnded` 判定）。本扩展的本地认证代理会改写头并转发请求体，
+  **需实测大文件上传是否被正确的流式转发**。其余路径（普通请求、WSS）无影响。
+
 ## [0.5.1] - 2026-09-06
 
 ### 修复

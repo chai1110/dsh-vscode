@@ -21,6 +21,11 @@ DeepSeek Harness 0.1.2（alpha/rc）重构后引入了启动令牌鉴权、客�
 
 实测适配版本：`@deepseek-ai/dsh@0.1.2-rc.1`（198 个单元/集成测试 + 真机端到端验证）。
 
+**新版兼容**：已核对 `@deepseek-ai/dsh@0.1.5-rc.1` —— 启动就绪行与鉴权逻辑与本 Fork 适配基准**逐字节/逐语句
+一致**（仅行号与缩进漂移），桥接懒加载机制与 WSS 转发通道均未变，**适配层无需改动**。
+唯一待真机回归项：0.1.5 新增的「上传任意类型文件」走 `requestBodyMode: streaming` 路径，
+本地代理的请求体转发需实测一次大文件上传（详见 [CHANGELOG](CHANGELOG.md) 的 `[Unreleased]`）。
+
 ## 安装
 
 1. 从 [Releases](https://github.com/chai1110/dsh-vscode/releases) 下载最新 `dsh-vscode.vsix`；
