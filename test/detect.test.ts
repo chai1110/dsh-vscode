@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import net from 'node:net';
 import type { AddressInfo } from 'node:net';
-import { probeService, findFreePort, extractDshWebUrl } from '../src/service/detect';
+import { probeService, findFreePort } from '../src/service/detect';
 
 /** 启动本地 HTTP 服务器并返回 { server, port } */
 async function serve(
@@ -18,11 +18,49 @@ async function serve(
 
 const DSH_HTML = '<!doctype html><html><head><script>window.__DSH_BOOT__ = {}</script></head><body></body></html>';
 const OTHER_HTML = '<!doctype html><html><head><title>Nginx</title></head><body>hi</body></html>';
+/** DSH ≥0.1.2 的鉴权 401 响应体（无 cookie 访问任何路径时返回，已对真实 dsh 0.1.2-rc.1 实测） */
+const AUTH_401_BODY = 'dsh web authentication required; reopen the URL printed by dsh web.\n';
 
 test('首页含 __DSH_BOOT__ 标记 → dsh', async () => {
   const { server, port } = await serve((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end(DSH_HTML);
+  });
+  try {
+    assert.equal(await probeService('127.0.0.1', port, 1000), 'dsh');
+  } finally {
+    server.close();
+  }
+});
+
+test('401 且 body 为 DSH 鉴权提示 → dsh（DSH ≥0.1.2 带鉴权：服务在跑、需要登录，绝非端口被占）', async () => {
+  const { server, port } = await serve((_req, res) => {
+    res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
+    res.end(AUTH_401_BODY);
+  });
+  try {
+    assert.equal(await probeService('127.0.0.1', port, 1000), 'dsh');
+  } finally {
+    server.close();
+  }
+});
+
+test('401 但 body 不是 DSH 鉴权提示（如普通需要认证的站点）→ foreign', async () => {
+  const { server, port } = await serve((_req, res) => {
+    res.writeHead(401, { 'content-type': 'text/plain' });
+    res.end('Unauthorized');
+  });
+  try {
+    assert.equal(await probeService('127.0.0.1', port, 1000), 'foreign');
+  } finally {
+    server.close();
+  }
+});
+
+test('403 且 body 含 DSH 字样 → dsh（/api 围栏拒绝也是“DSH 在运行”的信号）', async () => {
+  const { server, port } = await serve((_req, res) => {
+    res.writeHead(403, { 'content-type': 'text/plain' });
+    res.end('forbidden: dsh web fence');
   });
   try {
     assert.equal(await probeService('127.0.0.1', port, 1000), 'dsh');
@@ -91,58 +129,4 @@ test('findFreePort：候选超出 65535 提前停止并返回 null', async () =>
   };
   assert.equal(await findFreePort('127.0.0.1', 65535, 10, probe), null);
   assert.equal(calls, 0); // 65536 超出合法范围，一次都不探测
-});
-
-test('401 且响应体含 dsh 鉴权文案 → dsh-auth', async () => {
-  const { server, port } = await serve((_req, res) => {
-    res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('dsh web authentication required; reopen the URL printed by dsh web.\n');
-  });
-  try {
-    assert.equal(await probeService('127.0.0.1', port, 1000), 'dsh-auth');
-  } finally {
-    server.close();
-  }
-});
-
-test('403 且响应体含 dsh 鉴权文案 → dsh-auth（留作未来策略扩展）', async () => {
-  const { server, port } = await serve((_req, res) => {
-    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('dsh web authentication required; reopen the URL printed by dsh web.\n');
-  });
-  try {
-    assert.equal(await probeService('127.0.0.1', port, 1000), 'dsh-auth');
-  } finally {
-    server.close();
-  }
-});
-
-test('401 但响应体不是 dsh 的鉴权文案 → foreign', async () => {
-  const { server, port } = await serve((_req, res) => {
-    res.writeHead(401, { 'content-type': 'text/plain' });
-    res.end('401 Unauthorized');
-  });
-  try {
-    assert.equal(await probeService('127.0.0.1', port, 1000), 'foreign');
-  } finally {
-    server.close();
-  }
-});
-
-test('extractDshWebUrl：解析启动输出的首条 loopback 就绪地址（忽略 LAN 部分）', () => {
-  const line =
-    'dsh web: http://127.0.0.1:3080/?token=abc123 (LAN: http://192.168.1.2:3080/?token=abc123)';
-  assert.equal(extractDshWebUrl(line), 'http://127.0.0.1:3080/?token=abc123');
-});
-
-test('extractDshWebUrl：多行输出中命中 dsh web: 行', () => {
-  const text = 'boot: ok\nloader: settled\ndsh web: http://127.0.0.1:3081/?token=XyZ\n';
-  assert.equal(extractDshWebUrl(text), 'http://127.0.0.1:3081/?token=XyZ');
-});
-
-test('extractDshWebUrl：无匹配或非法 URL 返回 null', () => {
-  assert.equal(extractDshWebUrl('listening on port 3080'), null);
-  assert.equal(extractDshWebUrl('dsh web: (LAN: http://x)/n'), null);
-  assert.equal(extractDshWebUrl('dsh web: http://'), null); // new URL 抛错 → null
-  assert.equal(extractDshWebUrl(''), null);
 });

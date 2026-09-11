@@ -6,27 +6,24 @@
 
 **English** | [中文](README.zh.md)
 
-> **This repository is a fork of [Fengze233/dsh-vscode](https://github.com/Fengze233/dsh-vscode)**. Upstream development has stopped (last release 0.3.1, incompatible with new DeepSeek Harness), so this fork continues maintenance on top of it. Thanks to the original author — the MIT license is inherited from upstream.
+> **This repository is a fork of [Fengze233/dsh-vscode](https://github.com/Fengze233/dsh-vscode)**. Upstream 0.3.1 could not run on new DeepSeek Harness builds, so this fork shipped the 0.1.2+ adaptation first. **Upstream has since resumed and released [`v0.4.0`](https://github.com/Fengze233/dsh-vscode/releases/tag/v0.4.0) (2026-09-10) — this fork has now merged it in full.** Thanks to the original author — the MIT license is inherited from upstream.
 
 Use the [DeepSeek Harness (DSH)](https://github.com/deepseek-ai/deepseek-harness) web UI right inside VS Code: click a sidebar whale icon to embed DSH, which auto-starts the `dsh web` service — code and AI interface side by side.
 
 ## Why this fork exists
 
-DeepSeek Harness 0.1.2 (alpha/rc) introduced launch-token auth, lazy client modules, and more — upstream 0.3.1 completely fails on new DSH builds (the panel never opens, see upstream issue [#12](https://github.com/Fengze233/dsh-vscode/issues/12)). This fork completes the adaptation in four layers (0.4.0 → 0.5.1):
+DeepSeek Harness 0.1.2 (alpha/rc) introduced launch-token auth, lazy client modules, and more — upstream 0.3.1 completely fails on new DSH builds (the panel never opens, see upstream issue [#12](https://github.com/Fengze233/dsh-vscode/issues/12)). This fork and upstream **independently built the same fix** (loopback proxy + launch-token → signed-cookie exchange). As of **`0.5.2` the fork merges upstream `v0.4.0` in full**, keeping only what upstream still lacks:
 
-- 🔐 **Launch-token auth**: detects auth-enabled DSH instances (401 + the official auth marker), starts a plugin-owned instance on a free port, and parses the tokenized ready URL from dsh's startup output;
-- 🛡️ **Local auth proxy (core)**: the new auth cookie is `SameSite=Strict`, which a cross-site iframe inside the VS Code webview can never send — the panel goes through a built-in local proxy that injects the auth cookie upstream, so the browser side needs zero cookies;
-- 🧩 **Lazy client-module adaptation**: the bridge client declares `immediately: true` (matching official core modules) so it executes at page boot and its handshake listeners are always bound;
-- ⏱️ **Handshake timing tolerance + RPC forwarding**: handshake timeout 3s→10s, hello retries for 30s; the WebSocket RPC channel (`/api/remote.mux`) is forwarded through the proxy with upgrade headers preserved.
+- 🧩 **Lazy client-module adaptation** — the bridge client declares `dsh.client.immediately: true` (matching official core modules), the **stage-one prefetch mark** dsh uses to load a plugin's bundle during module-face boot. Upstream `v0.4.0` does not declare it, and the bridge is in no `inject` chain;
+- 🔐 **Launch-token auth** (now upstream's three-layer implementation: `proxy.ts` + `session.ts` + `launchUrl.ts`) — auth-aware probing, per-`host:port` session persistence (30 days, survives service restarts), stdout chunk-splitting buffer, LAN-suffix tolerance;
+- 🛡️ **Local auth proxy** — the auth cookie is `SameSite=Strict`, which a cross-site iframe inside the VS Code webview can never send; the panel goes through a built-in local proxy that injects the cookie upstream, so the browser side needs zero cookies;
+- 🖼️ **Image fallback on DSH ≥0.1.2** — endpoint normalisation (`session.prompt` → `session/prompt`), two-generation envelope unwrapping (`payload.args.request.content`), and `session/attachment-invalid` rejection handling;
+- 🧭 **External-instance login guide** — `pending` / `ok` / `needed` states, so a DSH you started yourself can be adopted by pasting its launch URL once;
+- ⏱️ **Handshake timing + RPC forwarding** — hello loop decoupled from the `load` event, remote-classified handshake timeout (tunnel 15s / local 5s), WebSocket RPC channel (`/api/remote.mux`) forwarded with upgrade headers preserved.
 
-Tested against `@deepseek-ai/dsh@0.1.2-rc.1` (198 unit/integration tests + end-to-end verification on a real machine).
+Verified against `@deepseek-ai/dsh@0.1.5-rc.1`: **233 unit tests (231 pass / 0 fail / 2 skipped)** plus **two real-dsh end-to-end integration tests** — ① launch → capture launch URL → exchange session cookie → proxy returns 200 (control: 401 without cookie), ② the full start / reuse / stop / crash flow. The 0.1.5 readiness line and auth logic are byte-/statement-identical to the 0.1.2 baseline, so the adaptation layer needs no further change.
 
-**Newer versions**: verified against `@deepseek-ai/dsh@0.1.5-rc.1` — the ready line and the auth logic are
-**byte-/statement-identical** to this fork's baseline (only line numbers and indentation drifted), and both the
-lazy client-module mechanism and the WSS forwarding channel are unchanged, so **the adaptation layer needs no change**.
-The single item pending real-machine regression: 0.1.5's "upload any file type" goes through a
-`requestBodyMode: streaming` path, so the proxy's request-body forwarding should be exercised with one large upload
-(see the `[Unreleased]` section in [CHANGELOG](CHANGELOG.md)).
+One item still pending real-machine regression: 0.1.5's "upload any file type" goes through a `requestBodyMode: streaming` path, so the proxy's request-body forwarding should be exercised with one large upload (see the `[Unreleased]` section in [CHANGELOG](CHANGELOG.md)).
 
 ## Install
 

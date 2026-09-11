@@ -1,8 +1,65 @@
+## [0.5.2] - 2026-09-10
+
+### 合并
+
+- **全量并入上游本家 `Fengze233/dsh-vscode` `v0.4.0`**（合并基线 `v0.3.1` = `1029162`；上游 22 个提交 / +2746 行）。
+  双方在 2026-09-06 ~ 09-10 几乎同一时段、互不知情地各自解决了**同一个问题**（DSH ≥0.1.2 启动令牌鉴权 +
+  `SameSite=Strict` cookie 在跨站 webview iframe 中不回送），方案同构（本地回环代办代理 + 令牌换签名 cookie）。
+  上游实现更完整，故本次以「上游为主、我方独有改动单独补回」的方式合并：
+
+  - **鉴权栈换代**：退役本方 `src/service/authproxy.ts`（242 行单体），改用上游三层实现
+    `src/service/proxy.ts`（249）+ `src/service/session.ts`（190）+ `src/service/launchUrl.ts`（85）。
+    新增能力：会话按 `host:port` 持久化（30 天、服务重启不失效）、stdout 跨 chunk 分片缓冲、
+    LAN 后缀容错、**外部实例登录引导页**（`pending` / `ok` / `needed` 三态，可粘贴启动网址）、
+    `401` 自愈（丢弃失效 cookie 重新判定）、旧版 ≤0.1.1 无鉴权直通、代理 stop/start 竞态闭合。
+  - **图片链路修复（本次最有价值的并入）**：上游补上了 DSH 0.1.2 的**三处线格式变更**——
+    RPC 端点点分改斜杠（`session.prompt` → `session/prompt`）、业务字段移到 `payload.args.<参数名>`
+    （prompt 为 `request`，list 为 `_request`）、拒绝码改为 `session/attachment-invalid`
+    （子代理 `subagent/attachment-invalid`）。**本 Fork 此前完全没接这三处**，导致「模型不支持图像时
+    自动降级为路径转发」在 dsh ≥0.1.2 上失效（用户表现为发不出图、只弹「当前模型不支持图片」）。
+    现新增端点名归一化 + 两代请求解包 + 三种拒绝码兼容（要求 `details.reason` 精确匹配，
+    不误判图片超限等其它附件错误），重发时原位写回 `args.request.content` 并保留
+    `requestId` / `sessionId` / `mode` / `clientTimeZone`。
+  - **图片缓存三处正确性缺陷**：同名图片旧缓存顶替新图（Critical，改为 base64 字节精确匹配优先、
+    成功路径立即消费本条缓存）、排队场景误删图（只删更早批次、保留最新一批，TTL 45s → 5min）、
+    重发失败丢缓存（消费移到重发成功之后）。
+  - **WSL / SSH Remote（上游 issue #13）**：`postMessage` 的 `targetOrigin` 改 `'*'` + 来源双重校验
+    （webview service worker 会重写 iframe origin，具名 targetOrigin 直接抛错）；CSP `frame-src`
+    由最终 iframe 地址单一推导；WSL 与 SSH 分开归类（WSL 走 localhost 直连，不需隧道）；
+    握手 hello 循环解耦 `load` 事件；握手超时按远程分类取值（隧道 15s / 本地与 WSL 5s）。
+    本 Fork 原先是固定 10s / 10.5s，现改为动态。
+  - **凭据卫生**：stdout 日志中的启动网址一律打码（`token=***`），输出通道不再残留可复制凭据。
+    （本 Fork 此前为明文输出。）
+  - **其他**：跨平台 dsh 版本显示（`resolveDshPackageJsonPath` 兼容符号链接/向上查找三种布局）、
+    Windows 卸载清理 npm 全局残留、`.vscodeignore` 排除本地测试目录。
+
+### 保留（本 Fork 独有，合并后复核仍在）
+
+- **`bridge-client` 声明 `dsh.client.immediately: true`**（上游 v0.4.0 缺此项）。dsh 的
+  `dsh-client-modules` 把该字段作为 **stage-one prefetch 标记**：带标记的模块其 bundle 在
+  module-face boot 阶段即加载并注册工厂；桥接不属于任何 `inject` 链，无此标记不会在启动阶段注册。
+- `scripts/e2e/`（真机 e2e 归档）、`scripts/release.sh`（发版脚本）、Fork 版 README。
+
+### 验证
+
+- `npm run typecheck` 通过；`npm test` **233 例：231 通过 / 0 失败 / 2 跳过**（跳过项为真机集成，沙箱内
+  `DSH_HOME` 不可写所致）。
+- **真机集成（关键）**：以隔离 `DSH_HOME` 在 `@deepseek-ai/dsh@0.1.5-rc.1` 上跑通两条端到端用例 ——
+  ① 启动 → 解析启动网址 → 兑换会话 cookie → 经代办代理访问 200（对照无 cookie 直连 401）；
+  ② 启动 / 复用 / 停止 / 意外退出全流程。**实证上游鉴权栈在 0.1.5-rc.1 上同样成立**，
+  此前"0.1.5 兼容性"仅为静态核对，现已升级为真机结论。
+- 版本号三方同步：扩展 `0.5.2` = 桥接源 `0.5.2` = 桥接产物 `0.5.2`；构建产物中
+  `out/bridge-client/package.json` 的 `dsh.client.immediately` 确认为 `true`。
+
+### 待验证
+
+- ⚠️ 大文件上传的真机回归（0.1.5 新增 `requestBodyMode: streaming`）；详细条目见下方 `[Unreleased]` 段。
+
 ## [Unreleased]
 
 ### 兼容性
 
-- **核对 DSH `0.1.5-rc.1`：本 Fork 的适配层无需改动**（2026-09-10，静态核对；尚未真机回归）。
+- **核对 DSH `0.1.5-rc.1`：适配层无需改动**（2026-09-10 静态核对 + 同日真机集成回归通过，见 `0.5.2` 条目）。
   - **启动就绪行**：`dsh-web-app` 打印语句
     `dsh web: ${authenticatedUrl}${lanUrl === void 0 ? "" : ` (LAN: ${lanUrl})`}`
     在 0.1.2-rc.1 与 0.1.5-rc.1 **逐字节相同**（仅行号 211 → 203 漂移）。本扩展的正则

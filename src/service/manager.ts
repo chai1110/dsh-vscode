@@ -1,6 +1,7 @@
 // src/service/manager.ts — 服务管理器：状态机编排探测/启动/等待/停止
 // 纯模块：不依赖 vscode；探测与进程管理均通过依赖注入，便于单测。
-import { extractDshWebUrl, findFreePort, PORT_FALLBACK_ATTEMPTS, type ProbeResult } from './detect';
+import { findFreePort, PORT_FALLBACK_ATTEMPTS, type ProbeResult } from './detect';
+import { parseLaunchUrlLine, pickLaunchUrl } from './launchUrl';
 import type { ChildProcessLike, ProcessRunner } from './process';
 import type { MsgKey } from '../i18n';
 
@@ -10,7 +11,7 @@ export type ServiceState = 'idle' | 'detecting' | 'starting' | 'waiting' | 'read
 /** 对外发布的状态快照（不可变副本） */
 export interface ServiceSnapshot {
   state: ServiceState;
-  /** 就绪后的网页地址（旧版 dsh 为 http://host:port/；新版带鉴权时为 stdout 解析出的带 ?token= 地址） */
+  /** 就绪后的网页地址（http://host:port/） */
   url: string | null;
   /** 失败原因（i18n 键，由面板/状态栏负责翻译） */
   error: MsgKey | null;
@@ -54,23 +55,13 @@ export interface ManagerDeps {
   log: (line: string) => void;
   /** 端口被占用时自动临时替换成功后的通知回调（扩展里弹窗告知用户新端口） */
   onPortFallback?: (requestedPort: number, fallbackPort: number) => void;
-  /** 目标端口运行着带鉴权 DSH、自动改用空闲端口自有实例后的通知回调（扩展里弹窗告知） */
-  onAuthPortFallback?: (requestedPort: number, fallbackPort: number) => void;
-  /**
-   * 本地认证代理（可选）。新版 dsh 的认证 cookie 是 SameSite=Strict，VS Code webview
-   * 的跨站 iframe 携带不了——就绪且解析到带令牌地址时，把面板展示地址换成代理地址，
-   * 由代理在上游注入 cookie。实现见扩展入口的 createAuthProxyController。
-   */
-  authProxy?: {
-    /** @param upstreamUrl 上游带令牌就绪地址 @returns 面板展示地址（代理地址） */
-    ensureReadyUrl(upstreamUrl: string): Promise<string>;
-    /** 服务停止/退出就绪时回收代理 */
-    stop(): void;
-  };
   /** 就绪后的健康探测间隔（毫秒，默认 30000；≤0 关闭探测） */
   healthIntervalMs?: number;
   /** 启动总超时（毫秒，默认 15000） */
   startTimeoutMs?: number;
+  /** 捕获到 DSH 启动网址（`dsh web: http://host:port/?token=…`）时的回调。
+   * DSH ≥0.1.2 鉴权：该 URL 是兑换浏览器会话 cookie 的唯一入口（见 dsh-client-connection）。 */
+  onLaunchUrl?: (url: string) => void;
 }
 
 /** 启动总超时默认值（毫秒） */
@@ -79,12 +70,6 @@ const DEFAULT_START_TIMEOUT_MS = 15000;
 const DEFAULT_HEALTH_INTERVAL_MS = 30000;
 /** 「崩溃后换端口重启」的最大轮数（防死循环；超过后报启动崩溃） */
 const PORT_FALLBACK_MAX_ROUNDS = 3;
-/**
- * 「探测到 dsh-auth 但 stdout 还没打印带令牌地址」的宽限轮数：
- * 服务绑定端口先于 printUrl 输出，连续 N 轮（每轮 pollMs）仍无令牌地址时
- * 以无令牌地址兜底就绪（页面会显示 401 文案，但连接状态本身是对的）。
- */
-const AUTH_URL_GRACE_POLLS = 4;
 
 export class ServiceManager {
   private snapshot: ServiceSnapshot = { state: 'idle', url: null, error: null, owned: false };
@@ -101,8 +86,8 @@ export class ServiceManager {
   private noOpenDisabled = false;
   /** 最近一次启动子进程的 stderr 缓冲（有界，用于识别 "unknown option '--no-open'" 崩溃根因） */
   private childStderr = '';
-  /** 自启子进程 stdout 解析出的带 ?token= 就绪地址（新版 dsh 鉴权；每次启动前重置） */
-  private childAuthUrl: string | null = null;
+  /** stdout 行拆分缓冲：data 事件可能任意分片，跨 chunk 的行先缓存，遇换行再解析 */
+  private stdoutPartial = '';
   private disposed = false;
   /** 父进程退出时杀掉子进程，防止僵尸（stopOnExit=false 时移除） */
   private parentExitHook = (): void => {
@@ -182,7 +167,6 @@ export class ServiceManager {
   /** 停掉自启子进程并回到 idle */
   private async stopOwned(): Promise<void> {
     this.clearHealthWatch();
-    this.deps.authProxy?.stop();
     if (!this.child) {
       this.set({ state: 'idle', url: null, owned: false, error: null });
       return;
@@ -213,27 +197,6 @@ export class ServiceManager {
       this.set({ state: 'ready', url: this.url(), owned: false });
       this.startHealthWatch(); // 复用外部服务也要周期探测，失联时回 idle
       return this.getSnapshot();
-    }
-    if (probe === 'dsh-auth') {
-      // 新版 dsh（0.1.2 起）web 面板启用「启动令牌换 cookie」鉴权：令牌只存在于该服务进程
-      // 内存，外部实例无法复用（无 cookie 的请求一律 401）。放弃复用，改由插件在空闲端口
-      // 启动自有实例，并从其 stdout 解析带令牌的就绪地址。
-      if (!this.opts.autoStart) {
-        this.set({ state: 'failed', error: 'err.authRequired', errorVars: { port: this.opts.port } });
-        return this.getSnapshot();
-      }
-      const fallback = await findFreePort(
-        this.opts.host, this.opts.port, PORT_FALLBACK_ATTEMPTS, this.deps.probeService, this.opts.timeoutMs,
-      );
-      if (fallback === null) {
-        this.set({ state: 'failed', error: 'err.portOccupied', errorVars: { port: this.opts.port } });
-        return this.getSnapshot();
-      }
-      if (this.stopRequested) return this.getSnapshot(); // 探测候选期间被叫停，不覆盖用户的停止意图
-      this.deps.log(`[process] 端口 ${this.opts.port} 运行的是启用启动令牌鉴权的 DSH（外部实例无法复用），本次会话改在端口 ${fallback} 启动插件自有实例`);
-      this.deps.onAuthPortFallback?.(this.opts.port, fallback);
-      this.opts.port = fallback;
-      // 不 return：落入下方启动流程（autoStart 为 true）
     }
     if (probe === 'foreign') {
       // 端口被其他程序占用：自动临时替换为第一个空闲端口（仅本次会话生效，不写配置）。
@@ -317,7 +280,6 @@ export class ServiceManager {
     }
     this.child = child;
     this.childStderr = ''; // 新一轮启动重置 stderr 缓冲（供 --no-open 崩溃识别）
-    this.childAuthUrl = null; // 新一轮启动重置令牌地址（旧输出不再有效）
     // 记录实际执行的启动命令（含解析出的 node 路径与全部参数），供问题排查对照环境差异
     const lastStart = this.deps.processRunner.lastStart;
     if (lastStart) {
@@ -351,12 +313,22 @@ export class ServiceManager {
     });
     child.stdout?.on('data', (chunk) => {
       const text = chunk.toString();
-      this.deps.log(`[stdout] ${text.trimEnd()}`);
-      // 新版 dsh 就绪时打印 `dsh web: http://127.0.0.1:<port>/?token=…`：这是唯一能拿到
-      // 启动令牌的途径（令牌只在服务进程内存里）。只认第一条，后续 HMR 等重复输出不覆盖。
-      if (this.childAuthUrl === null) {
-        const parsed = extractDshWebUrl(text);
-        if (parsed !== null) this.childAuthUrl = parsed;
+      // 日志打码：启动网址行含一次性登录 token，输出通道不做可复制凭据残留
+      this.deps.log(`[stdout] ${text.replace(/([?&]token=)[A-Za-z0-9_-]+/g, '$1***').trimEnd()}`);
+      // 行级解析启动网址（0.1.2 打印 `dsh web: http://127.0.0.1:<port>/?token=<43字符>`），
+      // 供扩展兑换浏览器会话 cookie（解析用原文，打码只作用于日志文本）。
+      this.stdoutPartial += text;
+      const lines = this.stdoutPartial.split('\n');
+      this.stdoutPartial = lines.pop() ?? '';
+      for (const line of lines) {
+        const url = parseLaunchUrlLine(line);
+        if (url === null) continue; // 噪音行：忽略
+        // 只认与当前目标端口一致且优先环回地址的候选，排除 LAN 后缀等不可靠条目
+        const picked = pickLaunchUrl([url], this.opts.port);
+        if (picked !== null) {
+          this.deps.log(`[process] 捕获 DSH 启动网址（host:port=${new URL(picked).host}）`);
+          this.deps.onLaunchUrl?.(picked);
+        }
       }
     });
     child.stderr?.on('data', (chunk) => {
@@ -373,8 +345,6 @@ export class ServiceManager {
     this.set({ state: 'waiting' });
     const startTimeoutMs = this.deps.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS;
     const deadline = Date.now() + startTimeoutMs;
-    // 探测到 dsh-auth 但尚未从 stdout 拿到令牌地址的连续轮数（printUrl 晚于端口绑定，宽限等待）
-    let authGrace = 0;
     for (;;) {
       if (spawnFailed) return this.getSnapshot(); // 已置为 failed（err.dshNotFound）
       if (this.stopRequested) return this.getSnapshot(); // 等待阶段被叫停（先于 childExited 判定）
@@ -410,9 +380,6 @@ export class ServiceManager {
           this.startHealthWatch();
           return this.getSnapshot();
         }
-        if (reuse === 'dsh-auth') {
-          this.deps.log('[process] 子进程退出，端口上是带启动令牌鉴权的 DSH（外部实例无法复用）');
-        }
         // 换端口重启：端口在启动期间被抢占，自动改用第一个空闲端口（仅本次会话，
         // 弹窗告知）；带轮数上限防死循环（每次崩溃都换新端口重启，最多 3 轮）。
         if (this.opts.autoStart && portFallbackRounds < PORT_FALLBACK_MAX_ROUNDS) {
@@ -435,36 +402,6 @@ export class ServiceManager {
         this.startHealthWatch();
         return this.getSnapshot();
       }
-      if (result === 'dsh-auth') {
-        // 新版 dsh：服务已绑定端口，但对无 cookie 探测回 401——就绪与否取决于
-        // 是否已从 stdout 拿到带令牌地址；拿到即经认证代理就绪（webview 的跨站
-        // iframe 携带不了 SameSite=Strict cookie，直连地址在面板里就是 401 页）。
-        if (this.childAuthUrl !== null) {
-          const upstreamUrl: string = this.childAuthUrl;
-          this.deps.log(`[process] 已从启动输出解析到带令牌的就绪地址（端口 ${this.opts.port}）`);
-          let display: string = upstreamUrl;
-          if (this.deps.authProxy) {
-            try {
-              display = await this.deps.authProxy.ensureReadyUrl(upstreamUrl);
-              this.deps.log(`[authproxy] 面板经本地认证代理访问：${display}`);
-            } catch (err) {
-              this.deps.log(`[authproxy] 代理不可用（${String(err)}），退回带令牌直连地址`);
-            }
-          }
-          this.set({ state: 'ready', url: display, owned: true });
-          this.startHealthWatch();
-          return this.getSnapshot();
-        }
-        authGrace += 1;
-        if (authGrace >= AUTH_URL_GRACE_POLLS) {
-          // printUrl 被关闭或输出格式变化：以无令牌地址兜底就绪（页面会显示 401 文案，
-          // 但服务确实在跑；「复制网址」后浏览器打开 dsh 终端里打印的 URL 仍可登录）。
-          this.deps.log('[process] 启动输出中未找到带令牌的就绪地址，以无令牌地址兜底就绪（页面可能要求登录）');
-          this.set({ state: 'ready', url: this.url(), owned: true });
-          this.startHealthWatch();
-          return this.getSnapshot();
-        }
-      }
       // 'foreign' 表示子进程没能绑定端口（被占）——继续等待会让用户困惑，
       // 但可能只是服务尚未就绪的瞬间，保守起见继续轮询直到超时。
       if (Date.now() >= deadline) {
@@ -485,7 +422,6 @@ export class ServiceManager {
     this.child = null;
     if (this.snapshot.state === 'ready') {
       this.clearHealthWatch();
-      this.deps.authProxy?.stop();
       this.set({ state: 'idle', url: null, owned: false, error: null });
     }
   }
@@ -497,9 +433,7 @@ export class ServiceManager {
     if (interval <= 0) return;
     this.healthTimer = setInterval(() => {
       void this.deps.probeService(this.opts.host, this.opts.port, this.opts.timeoutMs).then((result) => {
-        // 'dsh'（旧版免鉴权）与 'dsh-auth'（新版 401 兜底）都代表服务健在：
-        // 健康探测不带 cookie，带鉴权的服务永远回 401，不能据此判死。
-        if (result !== 'dsh' && result !== 'dsh-auth' && this.snapshot.state === 'ready') {
+        if (result !== 'dsh' && this.snapshot.state === 'ready') {
           this.clearHealthWatch(); // 已回 idle，定时器自清理，不空转
           this.set({ state: 'idle', url: null, owned: false, error: null });
         }
