@@ -1,3 +1,37 @@
+## [0.5.3] - 2026-09-13
+
+### 变更
+
+- **扩展身份与上游解耦**：`publisher` 由 `Fengze233` 改为 **`chai1110`**，扩展 id 变为 **`chai1110.dsh-vscode-panel`**；
+  `repository` / `homepage` / `bugs` 指向本 Fork 仓库。此前沿用上游 publisher + name 且版本号高于上游
+  （0.5.2 > 0.4.0）→ VS Code 比对商城后认为「已是最新」，**永远收不到上游后续更新**，且上游将来发 0.5.x 会撞号。
+  ⚠️ **代价**：新 id 与商店里的 `Fengze233.dsh-vscode-panel` 是两个不同扩展，**升级时必须先卸载旧扩展**，
+  否则同名命令与视图会重复注册、互相冲突。（`dsh-vscode-lite` 早已用独立 publisher，此改动与之对齐。）
+
+### 修复
+
+- **代理不再剥离请求体长度**（`src/service/proxy.ts`）：`content-length` 是**端到端头**而非 hop-by-hop 头，
+  此前误列入剥离名单 → 每个 POST/PUT 都被改写成 chunked，并使上游的「大 body 早拒」守卫失效
+  （`dsh-client-connection` 的 buffered 路由会先按 `content-length` 判断是否超过 `maxRequestBodyBytes`
+  并提前回 413；拿不到该头就只能边收边判、白读满上限）。0.1.5 的流式上传路由也依赖长度信息。
+  现原样透传 `content-length`（仍剥离 `transfer-encoding`，由本层重建）。同时补上守卫：
+  **客户端中途断开则销毁上游请求**，避免上游按声明的长度继续等剩余字节导致连接悬挂。
+
+### 新增测试
+
+- `POST 24MB 请求体：字节精确 + 上游真流式消费（代理不整体缓冲）` —— 用**握手式**断言：客户端先发首块，
+  等上游**确实收到首块**才发剩余；若代理整体缓冲，上游永远收不到首块 → 用例必然超时失败。
+  这比「发完再比对长度」严格，后者对「先缓冲再一次性转发」同样会通过。
+- `请求头保真：Content-Length 原样透传、Transfer-Encoding 不转发`。
+- 真机集成补 `POST /api/session/uploadFileBinary` 的 **8MB 流式上传**回归（0.1.5 新增的
+  `requestBodyMode: 'streaming'` 路由），断言拿到业务错误码而非 400/404/413/415。
+
+### 验证
+
+- `npm run typecheck` 0 错误；`npm test` **235 例：233 通过 / 0 失败 / 2 跳过**（跳过项为真机集成，沙箱内
+  `DSH_HOME` 不可写所致）。
+- 真机 `@deepseek-ai/dsh@0.1.5-rc.1` 集成 **2/2 全绿**：鉴权全链路（含 8MB 流式上传）+ 启动/复用/停止/崩溃全流程。
+
 ## [0.5.2] - 2026-09-10
 
 ### 合并

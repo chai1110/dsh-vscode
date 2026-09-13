@@ -57,9 +57,16 @@ export interface DshProxy {
   stop(): Promise<void>;
 }
 
-/** 剥离的 hop-by-hop/代管头（转发时移除，由本层重建） */
+/**
+ * 剥离的 hop-by-hop / 代管头（转发时移除，由本层重建）。
+ * 注意 `content-length` **不在**此列：它是端到端头而非 hop-by-hop 头，剥离它会强制把每个
+ * POST/PUT 改写成 chunked，并让上游「大 body 早拒」守卫失效——dsh-client-connection 的
+ * buffered 路由会先按 `content-length` 判断是否超过 maxRequestBodyBytes 并提前回 413，
+ * 拿不到该头就只能边收边判、白读满上限。0.1.5 的 streaming 上传路由
+ * （`POST /api/session/uploadFileBinary`）也依赖长度信息做流式转发。
+ */
 const STRIP_REQUEST_HEADERS = new Set([
-  'host', 'connection', 'cookie', 'content-length', 'transfer-encoding', 'upgrade',
+  'host', 'connection', 'cookie', 'transfer-encoding', 'upgrade',
   // —— 浏览器来源头（DSH /api browser-trust fence 适配，实测必需）——
   // dsh-client-connection 的 isTrustedApiRequest 要求「Origin 的 host === Host 头」且
   // 「Sec-Fetch-Site 不得为 cross-site」。经本代理后：Host 被重写为真实 DSH authority，
@@ -148,6 +155,11 @@ export function createDshProxy(deps: DshProxyDeps): DshProxy {
     // 请求体流式透传（上传大文件场景）；无 body 时 end 即发
     req.pipe(upReq);
     req.on('error', () => upReq.destroy());
+    // 原样转发了 content-length：客户端中途断开时必须销毁上游请求，
+    // 否则上游会一直等剩余字节，连接悬挂到超时。
+    req.on('close', () => {
+      if (!req.readableEnded) upReq.destroy();
+    });
   };
 
   const handleUpgrade = (req: http.IncomingMessage, clientSocket: Socket, head: Buffer): void => {

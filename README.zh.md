@@ -31,7 +31,7 @@ DeepSeek Harness 0.1.2（alpha/rc）重构后引入了启动令牌鉴权、客�
 2. VS Code 中按 `Ctrl+Shift+P` → 执行 `Extensions: Install from VSIX...` → 选择下载的文件；
 3. 重载窗口（`Developer: Reload Window`）。
 
-> 前置要求：本机已安装 DeepSeek Harness 的 `dsh` 命令。商店里的 `Fengze233.dsh-vscode-panel` 是停止维护的上游旧版（0.3.1），不支持新版 DSH，不建议使用；若之前装过，用本 VSIX 原位覆盖即可。
+> 前置要求：本机已安装 DeepSeek Harness 的 `dsh` 命令。本 Fork 以独立 id **`chai1110.dsh-vscode-panel`** 发布——它与商店里的 `Fengze233.dsh-vscode-panel` 是**两个不同的扩展**，请**先卸载旧的再装**（否则两者会注册同名命令与视图，互相冲突）。
 
 从源码构建：
 

@@ -31,7 +31,7 @@ One item still pending real-machine regression: 0.1.5's "upload any file type" g
 2. In VS Code press `Ctrl+Shift+P` → run `Extensions: Install from VSIX...` → select the file;
 3. Reload the window (`Developer: Reload Window`).
 
-> Prerequisite: the `dsh` CLI from DeepSeek Harness must be installed locally. The marketplace package `Fengze233.dsh-vscode-panel` is the unmaintained upstream build (0.3.1) and does not support new DSH — if you had it installed, this vsix upgrades it in place.
+> Prerequisite: the `dsh` CLI from DeepSeek Harness must be installed locally. This fork publishes under its own id **`chai1110.dsh-vscode-panel`** — that is a *different* extension from the marketplace's `Fengze233.dsh-vscode-panel`, so **uninstall the old one first** (they would otherwise both register the same commands/views and collide).
 
 Build from source:
 

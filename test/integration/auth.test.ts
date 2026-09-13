@@ -89,6 +89,43 @@ function rawPost(url: string, body: unknown, headers: Record<string, string>): P
   });
 }
 
+/**
+ * 原始二进制 POST（可设置来源头）。0.1.5 的流式上传路由在业务失败后会提前 `connection: close`
+ * 并销毁请求流，客户端可能来不及写完 body —— 因此以「已收到的响应」为准，写入错误不视为失败。
+ */
+function rawBinaryPost(
+  url: string,
+  body: Buffer,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = http.request(
+      {
+        hostname: u.hostname,
+        port: u.port,
+        path: u.pathname + u.search,
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': String(body.length),
+          ...headers,
+        },
+      },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        const done = (): void => resolve({ status: res.statusCode ?? 0, body: text });
+        res.on('data', (c: string) => (text += c));
+        res.on('end', done);
+        res.on('close', done);
+      },
+    );
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
 test(
   '真实 dsh 0.1.2 鉴权全链路：启动→解析启动网址→兑换→代理访问 200（直连 401）',
   { skip: skipReason },
@@ -181,6 +218,25 @@ test(
         const parsed = JSON.parse(list.body) as { result?: { ok?: boolean; value?: { items?: unknown[] } } };
         assert.equal(parsed.result?.ok, true, `会话列表应返回成功（响应：${list.body.slice(0, 200)}）`);
         assert.ok(Array.isArray(parsed.result?.value?.items), '会话列表应包含 items 数组');
+
+        // 4.7) 0.1.5 新增的**流式**路由回归（requestBodyMode: 'streaming'）：
+        // POST /api/session/uploadFileBinary（application/octet-stream），经代理发大 body。
+        // 用一个不存在的 sessionId：预期服务端收下 body 后回 200 + {ok:false, error:{code}}——
+        // 这同时证明 ① 路由被命中（非 404）② content-type 通过（非 415）
+        // ③ sessionId 已解析（非 400）④ 大 body 经代理与 dsh streaming 分支正常消费（非 413 / 传输错误）。
+        const uploadBytes = Buffer.alloc(8 * 1024 * 1024, 0x42); // 8MB
+        const upload = await rawBinaryPost(
+          `${proxy.baseUrl}api/session/uploadFileBinary?sessionId=it-missing-session&name=probe.bin`,
+          uploadBytes,
+          { origin: proxy.baseUrl.slice(0, -1), 'sec-fetch-site': 'cross-site' },
+        );
+        assert.equal(upload.status, 200, `流式上传路由应可达（响应：${upload.body.slice(0, 200)}）`);
+        const uploadParsed = JSON.parse(upload.body) as { ok?: boolean; error?: { code?: string } };
+        assert.equal(uploadParsed.ok, false, '不存在的 sessionId 应为业务失败，而非传输层错误');
+        assert.ok(
+          typeof uploadParsed.error?.code === 'string' && uploadParsed.error.code.length > 0,
+          `应带业务错误码（证明 body 已被 dsh streaming 分支消费）：${upload.body.slice(0, 200)}`,
+        );
       } finally {
         await proxy.stop();
       }

@@ -2,8 +2,8 @@
   "name": "dsh-vscode-panel",
   "displayName": "DSH",
   "description": "在 VS Code 侧边栏中使用 DeepSeek Harness（DSH）网页界面",
-  "version": "0.5.2",
-  "publisher": "Fengze233",
+  "version": "0.5.3",
+  "publisher": "chai1110",
   "icon": "assets/icon.png",
   "license": "MIT",
   "engines": {
@@ -282,10 +282,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Fengze233/dsh-vscode.git"
+    "url": "git+https://github.com/chai1110/dsh-vscode.git"
   },
-  "homepage": "https://github.com/Fengze233/dsh-vscode#readme",
+  "homepage": "https://github.com/chai1110/dsh-vscode#readme",
   "bugs": {
-    "url": "https://github.com/Fengze233/dsh-vscode/issues"
+    "url": "https://github.com/chai1110/dsh-vscode/issues"
   }
 }

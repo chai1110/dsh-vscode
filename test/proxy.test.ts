@@ -6,6 +6,7 @@ import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { createDshProxy, type ProxyTarget } from '../src/service/proxy';
+import { createHash } from 'node:crypto';
 
 /** 启动假上游（模拟 DSH：记录请求头、按路径回响应；upgrade 连接登记以便清理） */
 type SeenHeaders = { host?: string; cookie?: string; origin?: string; secFetchSite?: string; referer?: string };
@@ -191,6 +192,88 @@ test('POST 大请求体（1MB）完整透传', async () => {
   try {
     const res = await fetch(base, { method: 'POST', body: big });
     assert.equal(await res.text(), `len=${big.length} eq=yes`);
+  } finally {
+    await proxy.stop();
+    closeUp(up);
+  }
+});
+
+// 24MB + 握手式流式断言：客户端先发首块，**等上游确实收到首块**才继续发剩余。
+// 若代理把请求体整体缓冲（读完才转发），上游永远收不到首块 → 用例必然超时失败。
+// 这比「发完再看长度」严格：后者对"先缓冲再一次性转发"同样会通过。
+test('POST 24MB 请求体：字节精确 + 上游真流式消费（代理不整体缓冲）', { timeout: 30000 }, async () => {
+  const SIZE = 24 * 1024 * 1024;
+  const head = Buffer.alloc(1024 * 1024, 0xa5); // 首块 1MB
+  const tail = Buffer.alloc(SIZE - head.length, 0x5a);
+  const expected = createHash('sha256').update(head).update(tail).digest('hex');
+
+  let signalFirstChunk: () => void = () => {};
+  const firstChunkSeen = new Promise<void>((r) => {
+    signalFirstChunk = r;
+  });
+  let upstreamLen = 0;
+
+  const up = await serveUpstream((req, res) => {
+    const hash = createHash('sha256');
+    let seenFirst = false;
+    req.on('data', (c: Buffer) => {
+      if (!seenFirst) {
+        seenFirst = true;
+        signalFirstChunk();
+      }
+      upstreamLen += c.length;
+      hash.update(c);
+    });
+    req.on('end', () => {
+      res.writeHead(200);
+      res.end(hash.digest('hex'));
+    });
+  });
+  const { proxy, base } = await startProxy(() => ({ url: `http://127.0.0.1:${up.port}` }));
+  try {
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new Uint8Array(head));
+        await firstChunkSeen; // ← 关键：上游收到首块前不发剩余（证明流式）
+        controller.enqueue(new Uint8Array(tail));
+        controller.close();
+      },
+    });
+    const res = await fetch(base, { method: 'POST', body, duplex: 'half' } as RequestInit);
+    assert.equal(res.status, 200);
+    assert.equal(upstreamLen, SIZE, '上游收到的字节数应与发送一致');
+    assert.equal(await res.text(), expected, '上游收到的字节应与发送逐字节一致（sha256）');
+  } finally {
+    await proxy.stop();
+    closeUp(up);
+  }
+});
+
+// 端到端头（content-length）必须透传：它不是 hop-by-hop 头。
+// 剥离它会强制把每个 POST/PUT 变成 chunked，并让上游的「大 body 早拒」守卫失效
+// （dsh-client-connection 的 buffered 路由按 content-length 提前回 413）。
+test('请求头保真：Content-Length 原样透传、Transfer-Encoding 不转发', async () => {
+  let seen: http.IncomingHttpHeaders = {};
+  const up = await serveUpstream((req, res) => {
+    seen = req.headers;
+    const chunks: Buffer[] = [];
+    req.on('data', (c) => chunks.push(c as Buffer));
+    req.on('end', () => {
+      res.writeHead(200);
+      res.end(String(Buffer.concat(chunks).length));
+    });
+  });
+  const { proxy, base } = await startProxy(() => ({ url: `http://127.0.0.1:${up.port}` }));
+  try {
+    const body = Buffer.alloc(3 * 1024 * 1024, 0x11); // 3MB
+    const res = await fetch(base, { method: 'POST', body });
+    assert.equal(await res.text(), String(body.length));
+    assert.equal(
+      seen['content-length'],
+      String(body.length),
+      'Content-Length 应原样透传（端到端头，剥离会强制 chunked 并使上游早拒守卫失效）',
+    );
+    assert.equal(seen['transfer-encoding'], undefined, 'Transfer-Encoding 是 hop-by-hop，由本层重建');
   } finally {
     await proxy.stop();
     closeUp(up);
