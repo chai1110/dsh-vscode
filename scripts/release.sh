@@ -30,7 +30,7 @@ info() { echo -e "\033[1;33m$*\033[0m"; }
 die()  { echo -e "\033[0;31m✗ $*\033[0m" >&2; exit 1; }
 
 # ---------- 1. 版本一致性（三处必须相同，package.test.ts 也会强制校验） ----------
-info "① 校验三处版本号是否一致（应为 $VERSION）"
+info "① 校验三处版本号是否一致（应为 ${VERSION}）"
 V_ROOT=$(node -e "console.log(require('./package.json').version)")
 V_BRIDGE=$(node -e "console.log(require('./bridge-client/package.json').version)")
 # 注意：BSD(macOS) grep -E 不支持 \s，必须用 * 匹配空格；|| true 防止无匹配时 set -e 静默退出
@@ -51,7 +51,7 @@ npm run package >/tmp/dsh-vscode-release-package.log 2>&1 || { tail -20 /tmp/dsh
 ok "已生成 dsh-vscode.vsix"
 
 [ "$MODE" = "check" ] && { info "\n本地检查完成。要发布请执行：bash scripts/release.sh publish $VERSION"; exit 0; }
-[ "$MODE" = "publish" ] || die "未知模式：$MODE（可用 check / publish）"
+[ "$MODE" = "publish" ] || die "未知模式：${MODE}（可用 check / publish）"
 
 # ---------- 4. 从 CHANGELOG 提取发版说明 ----------
 NOTES="/tmp/dsh-vscode-release-notes-$VERSION.md"
@@ -73,7 +73,7 @@ fi
 git push "$FORK_ACCOUNT" "$TAG" 2>/dev/null || ok "tag 已在远端或推送跳过"
 
 # ---------- 6. 发布 Release ----------
-info "⑤ 发布 GitHub Release（切换到 $FORK_ACCOUNT）"
+info "⑤ 发布 GitHub Release（切换到 ${FORK_ACCOUNT}）"
 gh auth switch --user "$FORK_ACCOUNT" >/dev/null
 TITLE="${RELEASE_TITLE:-$TAG}"
 gh release create "$TAG" -R "$REPO" --title "$TITLE" --notes-file "$NOTES" ./dsh-vscode.vsix
