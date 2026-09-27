@@ -24,3 +24,8 @@
 - **同主机不同端口不算跨站**（SameSite 语义下同站），测不出 cookie 被拦；必须用「域名外壳 + IP 字面量 iframe」。
 - macOS 不能绑 `127.0.0.2`（Errno 49），别浪费时间。
 - 单元测试才是日常回归主力（`npm test`，198 例）；这些 e2e 脚本只在改代理/桥接/鉴权相关代码时才需要跑。
+
+## proxy-chain-054.mjs + shell-054.html（v0.5.4 / DSH 0.1.7-rc.2 适配验证）
+
+用法：启动测试 dsh（3086）→ `node run-proxy.mjs`（解析启动行→兑换会话→起真实代理）→ 把 shell-054.html 里的代理地址替换后用浏览器打开（跨站外壳=webview 等价）→ 验证 bridgeAck。
+已验证（2026-09-26）：exchangeSession ok（30 天 cookie）→ 代理 200（boot+bridge 下发）→ 跨站 iframe 第一次 hello 即 bridgeAck v0.5.4 → UI 完整加载。
