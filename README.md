@@ -21,9 +21,9 @@ DeepSeek Harness 0.1.2 (alpha/rc) introduced launch-token auth, lazy client modu
 - 🧭 **External-instance login guide** — `pending` / `ok` / `needed` states, so a DSH you started yourself can be adopted by pasting its launch URL once;
 - ⏱️ **Handshake timing + RPC forwarding** — hello loop decoupled from the `load` event, remote-classified handshake timeout (tunnel 15s / local 5s), WebSocket RPC channel (`/api/remote.mux`) forwarded with upgrade headers preserved.
 
-Verified against `@deepseek-ai/dsh@0.1.5-rc.1`: **233 unit tests (231 pass / 0 fail / 2 skipped)** plus **two real-dsh end-to-end integration tests** — ① launch → capture launch URL → exchange session cookie → proxy returns 200 (control: 401 without cookie), ② the full start / reuse / stop / crash flow. The 0.1.5 readiness line and auth logic are byte-/statement-identical to the 0.1.2 baseline, so the adaptation layer needs no further change.
+Verified against `@deepseek-ai/dsh@0.1.7-rc.2` (official latest): **235 unit tests (233 pass / 0 fail / 2 skipped)** plus **two real-dsh end-to-end integration tests** — ① launch → capture launch URL → exchange session cookie → proxy returns 200 (control: 401 without cookie), ② the full start / reuse / stop / crash flow. The 0.1.6/0.1.7 changes are desktop/UI-focused; the web auth fence and RPC wire format are unchanged, so the adaptation layer needs no change (the 0.1.5-rc.1 baseline check was identical).
 
-One item still pending real-machine regression: 0.1.5's "upload any file type" goes through a `requestBodyMode: streaming` path, so the proxy's request-body forwarding should be exercised with one large upload (see the `[Unreleased]` section in [CHANGELOG](CHANGELOG.md)).
+Large-file streaming uploads (0.1.5's `requestBodyMode: streaming` path) have been regression-tested on a real machine (8 MB upload, see CHANGELOG 0.5.3/0.5.4).
 
 ## Install
 
