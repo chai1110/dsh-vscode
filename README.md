@@ -25,6 +25,8 @@ Verified against `@deepseek-ai/dsh@0.1.7-rc.2` (official latest): **235 unit tes
 
 Large-file streaming uploads (0.1.5's `requestBodyMode: streaming` path) have been regression-tested on a real machine (8 MB upload, see CHANGELOG 0.5.3/0.5.4).
 
+Also verified on **`@deepseek-ai/dsh@0.2.0-rc.1` / `0.2.0-rc.2`** (official `latest` & `next`, 2026-09-29): live smoke via the real extension modules — token exchange → proxy 200 with `__DSH_BOOT__` + bridge injection (see `scripts/e2e/smoke-live.ts`). The patches for the dsh side (edit-and-replay, compaction retry, etc.) live in [dsh-custom-patches](https://github.com/chai1110/dsh-custom-patches), baseline `0.2.0-rc.2`.
+
 ## Install
 
 1. Download the latest `dsh-vscode.vsix` from [Releases](https://github.com/chai1110/dsh-vscode/releases);
