@@ -29,3 +29,10 @@
 
 用法：启动测试 dsh（3086）→ `node run-proxy.mjs`（解析启动行→兑换会话→起真实代理）→ 把 shell-054.html 里的代理地址替换后用浏览器打开（跨站外壳=webview 等价）→ 验证 bridgeAck。
 已验证（2026-09-26）：exchangeSession ok（30 天 cookie）→ 代理 200（boot+bridge 下发）→ 跨站 iframe 第一次 hello 即 bridgeAck v0.5.4 → UI 完整加载。
+
+## smoke-live.ts（对运行中实例的快速回归，0.2.0-rc.1 起）
+
+`proxy-chain-054.mjs` 依赖的 `svc/` 模块当年在 /tmp 目录运行、归档时未随入库（脚本不可直接运行）；
+对**已在运行的 dsh 实例**（如 launchd 常驻 3080）做快速回归，用 `smoke-live.ts`：
+token 兑换 → 代理 → boot 页 + bridge 注入，全程不自起 dsh。运行方法见文件头注释。
+2026-09-29 实测：dsh **0.2.0-rc.1**（next）上 SMOKE PASS。
