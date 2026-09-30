@@ -25,6 +25,8 @@ DeepSeek Harness 0.1.2（alpha/rc）重构后引入了启动令牌鉴权、客�
 
 大文件流式上传（0.1.5 新增的 `requestBodyMode: streaming` 路径）已在真机回归通过（8MB 上传，见 CHANGELOG 0.5.3/0.5.4）。
 
+另已在 **`@deepseek-ai/dsh@0.2.0-rc.1` / `0.2.0-rc.2`**（官方 `latest` 与 `next`，2026-09-29）实测：用真实扩展模块做活体 smoke——令牌兑换 → 代理 200 + `__DSH_BOOT__` + bridge 注入（见 `scripts/e2e/smoke-live.ts`）。dsh 侧的功能补丁（编辑重发、压缩重试等）在 [dsh-custom-patches](https://github.com/chai1110/dsh-custom-patches) 维护，基线 `0.2.0-rc.2`。
+
 ## 安装
 
 1. 从 [Releases](https://github.com/chai1110/dsh-vscode/releases) 下载最新 `dsh-vscode.vsix`；

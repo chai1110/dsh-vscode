@@ -14,7 +14,7 @@
 
 ## 使用前提
 
-- 本机装有 `@deepseek-ai/dsh`（当前验证版本 0.1.2-rc.1）且 `dsh` 在 PATH；
+- 本机装有 `@deepseek-ai/dsh`（最近实测版本 `0.2.0-rc.1` / `0.2.0-rc.2`）且 `dsh` 在 PATH；
 - 先 `npm install && npm run compile`；
 - 脚本会真实启动 `dsh web` 子进程并占用端口，**跑完务必清理残留进程**：
   `ps aux | grep "dsh web"` 逐个 kill（注意：用户手动跑的 3080 实例不要杀）。
