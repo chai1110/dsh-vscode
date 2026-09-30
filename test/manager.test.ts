@@ -189,7 +189,7 @@ test('启动超时：failed + err.startTimeout', async () => {
   const s = await h.manager.ensureRunning();
   assert.equal(s.state, 'failed');
   assert.equal(s.error, 'err.startTimeout');
-  assert.equal(s.errorVars?.seconds, 0); // startTimeoutMs=50 → round(50/1000)=0（真实环境为 15 秒）
+  assert.equal(s.errorVars?.seconds, 0); // startTimeoutMs=50 → round(50/1000)=0（真实环境为 45 秒）
   h.manager.dispose();
 });
 

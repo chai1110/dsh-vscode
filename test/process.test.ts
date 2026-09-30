@@ -35,6 +35,37 @@ class FakeChild implements ChildProcessLike {
   }
 }
 
+test('env：传入时与父进程环境合并，未传入时不设 env 键', () => {
+  const calls: { opts: { env?: Record<string, string> } }[] = [];
+  const spawnImpl: SpawnFn = (cmd, args, opts) => {
+    calls.push({ opts: opts as { env?: Record<string, string> } });
+    return new FakeChild();
+  };
+  const runner = createProcessRunner(spawnImpl, 'linux');
+
+  // 未配置 env：spawnOptions 不应出现 env 键（保持 spawn "完全继承父进程"语义）
+  runner.startDsh({ host: '127.0.0.1', port: 3080, extraArgs: [] });
+  assert.equal('env' in calls[0].opts, false);
+
+  // 配置了 env：合并结果包含父进程变量 + 注入变量（注入优先）
+  const prev = process.env.FORK_ENV_PARENT;
+  process.env.FORK_ENV_PARENT = 'p';
+  try {
+    calls.length = 0;
+    runner.startDsh({ host: '127.0.0.1', port: 3080, extraArgs: [], env: { FORK_ENV_CHILD: 'c', FORK_ENV_PARENT: 'override' } });
+    const env = calls[0].opts.env!;
+    assert.equal(env.FORK_ENV_PARENT, 'override');
+    assert.equal(env.FORK_ENV_CHILD, 'c');
+  } finally {
+    if (prev === undefined) delete process.env.FORK_ENV_PARENT; else process.env.FORK_ENV_PARENT = prev;
+  }
+
+  // 空对象：等同未配置（不传 env 键）
+  calls.length = 0;
+  runner.startDsh({ host: '127.0.0.1', port: 3080, extraArgs: [], env: {} });
+  assert.equal('env' in calls[0].opts, false);
+});
+
 test('Linux/macOS：命令为 dsh，detached 为 true，参数顺序正确', () => {
   const calls: { cmd: string; args: string[]; opts: { detached?: boolean } }[] = [];
   const spawnImpl: SpawnFn = (cmd, args, opts) => {

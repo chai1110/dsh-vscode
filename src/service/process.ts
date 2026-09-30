@@ -28,6 +28,8 @@ export interface StartOptions {
   executablePath?: string;
   /** 是否允许 dsh web 打开浏览器（true=不追加 --no-open；默认 false=追加 --no-open） */
   openInBrowser?: boolean;
+  /** 额外注入子进程的环境变量（与父进程环境合并；未配置/空对象时不传 env 键，保持"完全继承"） */
+  env?: Record<string, string>;
 }
 
 /**
@@ -229,7 +231,7 @@ export function createProcessRunner(
   let lastStart: { command: string; args: string[] } | null = null;
 
   return {
-    startDsh({ host, port, extraArgs, cwd, executablePath, openInBrowser }) {
+    startDsh({ host, port, extraArgs, cwd, executablePath, openInBrowser, env: extraEnv }) {
       // 基础参数（web 子命令 + host/port + 用户额外参数），两种平台共用
       const webArgs = ['web', '--host', host, '--port', String(port), ...extraArgs];
       // 默认不让 dsh 弹浏览器（嵌入面板场景无需浏览器）：除非用户打开 openInBrowser 开关
@@ -243,6 +245,9 @@ export function createProcessRunner(
         stdio: ['ignore', 'pipe', 'pipe'],
         // cwd 仅在显式传入时指定，避免覆盖 spawn 自身对缺省 cwd 的处理
         ...(sanitizedCwd === undefined ? {} : { cwd: sanitizedCwd }),
+        // 额外环境变量（dsh.env）：与父进程环境合并（父进程变量全保留）；
+        // 未配置或空对象时不传 env 键，保持 spawn "完全继承父进程"的既有行为
+        ...(extraEnv !== undefined && Object.keys(extraEnv).length > 0 ? { env: { ...process.env, ...extraEnv } } : {}),
       };
 
       let child: ChildProcessLike;

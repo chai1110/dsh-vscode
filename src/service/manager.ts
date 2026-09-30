@@ -37,6 +37,8 @@ export interface ManagerOptions {
   executablePath?: string;
   /** 是否允许 dsh web 打开浏览器（true=不传 --no-open；默认追加 --no-open） */
   openInBrowser?: boolean;
+  /** 额外注入子进程的环境变量（dsh.env + useEnvProxy 合并结果） */
+  env?: Record<string, string>;
 }
 
 /**
@@ -57,15 +59,16 @@ export interface ManagerDeps {
   onPortFallback?: (requestedPort: number, fallbackPort: number) => void;
   /** 就绪后的健康探测间隔（毫秒，默认 30000；≤0 关闭探测） */
   healthIntervalMs?: number;
-  /** 启动总超时（毫秒，默认 15000） */
+  /** 启动总超时（毫秒，默认 45000，可用 dsh.startTimeoutMs 调整） */
   startTimeoutMs?: number;
   /** 捕获到 DSH 启动网址（`dsh web: http://host:port/?token=…`）时的回调。
    * DSH ≥0.1.2 鉴权：该 URL 是兑换浏览器会话 cookie 的唯一入口（见 dsh-client-connection）。 */
   onLaunchUrl?: (url: string) => void;
 }
 
-/** 启动总超时默认值（毫秒） */
-const DEFAULT_START_TIMEOUT_MS = 15000;
+/** 启动总超时默认值（毫秒）：45s。Windows 冷启动实测可达 17–23s，
+ *  旧的 15s 会让已就绪的服务被判超时（issue #23）；用户可用 dsh.startTimeoutMs 调整。 */
+const DEFAULT_START_TIMEOUT_MS = 45000;
 /** 就绪后健康探测间隔默认值（毫秒） */
 const DEFAULT_HEALTH_INTERVAL_MS = 30000;
 /** 「崩溃后换端口重启」的最大轮数（防死循环；超过后报启动崩溃） */
@@ -248,6 +251,8 @@ export class ServiceManager {
           executablePath: this.opts.executablePath,
           // noOpenDisabled 后视为"用户要求弹浏览器"（即不追加 --no-open），兼容旧版 dsh
           openInBrowser: this.noOpenDisabled ? true : this.opts.openInBrowser,
+          // 额外环境变量：未配置时保持 undefined（runner 不传 env，完全继承父进程）
+          env: this.opts.env,
         });
         break; // spawn 成功（未同步抛异常），跳出重试循环继续等待就绪
       } catch (err) {

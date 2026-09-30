@@ -1,7 +1,7 @@
 // test/config.test.ts — 配置规范化与回环地址校验的单元测试
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeConfig, isLoopbackHost, DEFAULTS } from '../src/config';
+import { normalizeConfig, isLoopbackHost, buildChildEnv, DEFAULTS } from '../src/config';
 
 test('合法配置原样通过', () => {
   const { config, errors } = normalizeConfig({
@@ -11,8 +11,47 @@ test('合法配置原样通过', () => {
   assert.deepEqual(config, {
     host: 'localhost', port: 4000, autoStart: false, stopOnExit: false, extraArgs: ['--trusted-host', 'x:1'],
     bridgeEnabled: true, workspaceRootIndex: 0, silenceWarning: false, executablePath: '',
-    openInBrowser: false, remoteEnabled: false, imageFallback: true,
+    openInBrowser: false, remoteEnabled: false, imageFallback: true, env: {}, useEnvProxy: false,
+    startTimeoutMs: 45000,
   });
+});
+
+test('buildChildEnv：未开 useEnvProxy 时原样透传', () => {
+  assert.deepEqual(buildChildEnv({}, false), {});
+  assert.deepEqual(buildChildEnv({ FOO: 'bar' }, false), { FOO: 'bar' });
+});
+
+test('buildChildEnv：useEnvProxy 追加 --use-env-proxy', () => {
+  assert.deepEqual(buildChildEnv({}, true), { NODE_OPTIONS: '--use-env-proxy' });
+});
+
+test('buildChildEnv：保留既有 NODE_OPTIONS 且不重复追加', () => {
+  assert.deepEqual(
+    buildChildEnv({ NODE_OPTIONS: '--max-old-space-size=4096' }, true),
+    { NODE_OPTIONS: '--max-old-space-size=4096 --use-env-proxy' },
+  );
+  assert.deepEqual(
+    buildChildEnv({ NODE_OPTIONS: '--use-env-proxy' }, true),
+    { NODE_OPTIONS: '--use-env-proxy' },
+  );
+});
+
+test('dsh.env：合法条目通过', () => {
+  const { config, errors } = normalizeConfig({ env: { HTTPS_PROXY: 'http://127.0.0.1:7890' } });
+  assert.deepEqual(errors, []);
+  assert.deepEqual(config.env, { HTTPS_PROXY: 'http://127.0.0.1:7890' });
+});
+
+test('dsh.env：非法条目跳过并记录错误', () => {
+  const { config, errors } = normalizeConfig({ env: { A: 'ok', 'BAD=KEY': 'v', '': 'v', NUL: 42 as unknown as string } });
+  assert.deepEqual(config.env, { A: 'ok' });
+  assert.equal(errors.length, 3);
+});
+
+test('dsh.env：非对象整体拒绝', () => {
+  const { config, errors } = normalizeConfig({ env: ['a'] as unknown as Record<string, string> });
+  assert.deepEqual(config.env, {});
+  assert.equal(errors.length, 1);
 });
 
 test('缺省值回退默认', () => {
@@ -122,4 +161,18 @@ test('v0.3.0 新设置非布尔值回退默认（不记错误）', () => {
   assert.equal(r2.errors.length, 0);
   assert.equal(r3.errors.length, 0);
   assert.equal(r4.errors.length, 0);
+});
+
+test('startTimeoutMs：合法值通过', () => {
+  const { config, errors } = normalizeConfig({ startTimeoutMs: 60000 });
+  assert.deepEqual(errors, []);
+  assert.equal(config.startTimeoutMs, 60000);
+});
+
+test('startTimeoutMs：越界/非整数回退默认并记录错误', () => {
+  for (const bad of [4999, 600001, 1.5, NaN]) {
+    const { config, errors } = normalizeConfig({ startTimeoutMs: bad });
+    assert.equal(config.startTimeoutMs, DEFAULTS.startTimeoutMs);
+    assert.equal(errors.length, 1);
+  }
 });

@@ -4,7 +4,7 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { readFileSync } from 'node:fs';
 import { initI18n, t } from './i18n';
-import { readConfig, type DshConfig } from './config';
+import { buildChildEnv, readConfig, type DshConfig } from './config';
 import { probeService } from './service/detect';
 import { createProcessRunner, findInPath, findInPathPosix, resolveDshPackageJsonPath } from './service/process';
 import { ServiceManager, type ManagerOptions } from './service/manager';
@@ -71,6 +71,8 @@ function toManagerOptions(config: DshConfig): ManagerOptions {
     cwd: resolveWorkspaceRoot(vscode.workspace.workspaceFolders ?? [], config.workspaceRootIndex),
     executablePath: config.executablePath,
     openInBrowser: config.openInBrowser,
+    // 额外环境变量（dsh.env + useEnvProxy 合并；空对象时 runner 不传 env）
+    env: buildChildEnv(config.env, config.useEnvProxy),
     timeoutMs: 3000,
     pollMs: 500,
   };
@@ -551,6 +553,8 @@ export function activate(context: vscode.ExtensionContext): void {
   manager = new ServiceManager(toManagerOptions(config), {
     probeService,
     processRunner: createProcessRunner(),
+    // 启动总超时（dsh.startTimeoutMs；默认 45s，见 config.ts）
+    startTimeoutMs: config.startTimeoutMs,
     log: (line) => appendLog(line),
     // 端口被占用自动临时替换成功：弹窗告知用户新端口（仅本次会话，配置未变）
     onPortFallback: (requested, fallback) => {

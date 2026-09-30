@@ -24,6 +24,12 @@ export interface RawDshConfig {
   remoteEnabled?: boolean;
   /** 模型无视觉能力时是否自动把图片降级为文本+路径转发（默认开启） */
   imageFallback?: boolean;
+  /** 注入 DSH 子进程的额外环境变量（dsh.env） */
+  env?: Record<string, string>;
+  /** 是否自动为子进程追加 Node 的 --use-env-proxy（dsh.useEnvProxy） */
+  useEnvProxy?: boolean;
+  /** 等待 dsh web 就绪的总超时毫秒（dsh.startTimeoutMs） */
+  startTimeoutMs?: number;
 }
 
 /** 规范化后的配置（均有合法默认值） */
@@ -47,6 +53,12 @@ export interface DshConfig {
   remoteEnabled: boolean;
   /** 非视觉模型下发图自动降级为文本+路径转发 */
   imageFallback: boolean;
+  /** 注入 DSH 子进程的额外环境变量（dsh.env；未配置为空对象） */
+  env: Record<string, string>;
+  /** 是否自动为子进程追加 --use-env-proxy（dsh.useEnvProxy） */
+  useEnvProxy: boolean;
+  /** 等待 dsh web 就绪的总超时毫秒（dsh.startTimeoutMs） */
+  startTimeoutMs: number;
 }
 
 /** 默认配置 */
@@ -63,7 +75,19 @@ export const DEFAULTS: DshConfig = {
   openInBrowser: false,
   remoteEnabled: false,
   imageFallback: true,
+  // 子进程额外环境变量：默认空（保持原有的"直接继承父进程环境"行为）
+  env: {},
+  // 是否自动追加 --use-env-proxy：默认关，避免改变任何现有用户的行为
+  useEnvProxy: false,
+  // 启动总超时：默认 45s。Windows 冷启动（插件多、磁盘慢）实测可达 17–23s，
+  // 旧的 15s 硬编码会让服务其实已起来却报「未就绪」（issue #23）。
+  startTimeoutMs: 45000,
 };
+
+/** 启动超时允许的下限（毫秒）：低于 5s 对真实 DSH 冷启动没有意义 */
+export const MIN_START_TIMEOUT_MS = 5000;
+/** 启动超时允许的上限（毫秒）：超过 10 分钟视为配置错误 */
+export const MAX_START_TIMEOUT_MS = 600000;
 
 /** 安全边界：仅允许回环地址 */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -134,13 +158,74 @@ export function normalizeConfig(raw: RawDshConfig): { config: DshConfig; errors:
   const remoteEnabled = typeof raw.remoteEnabled === 'boolean' ? raw.remoteEnabled : DEFAULTS.remoteEnabled;
   const imageFallback = typeof raw.imageFallback === 'boolean' ? raw.imageFallback : DEFAULTS.imageFallback;
 
+  // env（dsh.env）：只接受「键与值都是非空字符串」的条目；非法条目跳过并记录错误。
+  // 键名不得含 '=' 或 NUL（Node 对 env 键的要求），否则 spawn 行为未定义。
+  const env: Record<string, string> = {};
+  if (raw.env !== undefined) {
+    if (typeof raw.env !== 'object' || raw.env === null || Array.isArray(raw.env)) {
+      errors.push(`dsh.env must be an object of string values, got ${JSON.stringify(raw.env)}`);
+    } else {
+      for (const [k, v] of Object.entries(raw.env)) {
+        if (k === '' || k.includes('=') || k.includes('\0') || typeof v !== 'string') {
+          errors.push(`dsh.env entry ignored (key/value must be non-empty strings): ${JSON.stringify(k)}`);
+          continue;
+        }
+        env[k] = v;
+      }
+    }
+  }
+
+  // useEnvProxy（dsh.useEnvProxy）：布尔设置沿用既有缺省处理（非法静默回退）
+  const useEnvProxy = typeof raw.useEnvProxy === 'boolean' ? raw.useEnvProxy : DEFAULTS.useEnvProxy;
+
+  // startTimeoutMs：5000..600000 整数，非法回退默认并记录错误
+  let startTimeoutMs: number;
+  if (raw.startTimeoutMs === undefined) {
+    startTimeoutMs = DEFAULTS.startTimeoutMs;
+  } else if (
+    typeof raw.startTimeoutMs !== 'number' ||
+    !Number.isInteger(raw.startTimeoutMs) ||
+    raw.startTimeoutMs < MIN_START_TIMEOUT_MS ||
+    raw.startTimeoutMs > MAX_START_TIMEOUT_MS
+  ) {
+    errors.push(
+      `dsh.startTimeoutMs must be an integer in ${MIN_START_TIMEOUT_MS}..${MAX_START_TIMEOUT_MS}, got ${JSON.stringify(raw.startTimeoutMs)}`,
+    );
+    startTimeoutMs = DEFAULTS.startTimeoutMs;
+  } else {
+    startTimeoutMs = raw.startTimeoutMs;
+  }
+
   return {
     config: {
       host, port, autoStart, stopOnExit, extraArgs, bridgeEnabled, workspaceRootIndex,
       silenceWarning, executablePath, openInBrowser, remoteEnabled, imageFallback,
+      env, useEnvProxy, startTimeoutMs,
     },
     errors,
   };
+}
+
+/**
+ * 计算注入 DSH 子进程的最终环境变量（纯函数，便于单测）。
+ *
+ * 语义：
+ * - 以 dsh.env 为基础；
+ * - useEnvProxy=true 时确保 NODE_OPTIONS 含 `--use-env-proxy`（Node 原生 fetch 只有带
+ *   该启动参数才会读 HTTP(S)_PROXY；实测不带时环境变量被完全忽略），已存在则不重复
+ *   追加、也不覆盖用户原有的其它 NODE_OPTIONS 选项。
+ */
+export function buildChildEnv(
+  env: Record<string, string>,
+  useEnvProxy: boolean,
+): Record<string, string> {
+  const out: Record<string, string> = { ...env };
+  if (!useEnvProxy) return out;
+  const flag = '--use-env-proxy';
+  const existing = (out.NODE_OPTIONS ?? '').trim();
+  if (existing.split(/\s+/).includes(flag)) return out;
+  out.NODE_OPTIONS = existing === '' ? flag : `${existing} ${flag}`;
+  return out;
 }
 
 /** 从 VS Code 设置读取（薄封装，供 extension.ts 使用） */
@@ -159,5 +244,8 @@ export function readConfig(): { config: DshConfig; errors: string[] } {
     openInBrowser: ws.get<boolean>('openInBrowser'),
     remoteEnabled: ws.get<boolean>('remote.enabled'),
     imageFallback: ws.get<boolean>('image.fallback'),
+    env: ws.get<Record<string, string>>('env'),
+    useEnvProxy: ws.get<boolean>('useEnvProxy'),
+    startTimeoutMs: ws.get<number>('startTimeoutMs'),
   });
 }
